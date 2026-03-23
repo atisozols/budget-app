@@ -27,7 +27,6 @@
     "lucide-react": "^0.577.0",
     "mongoose": "^9.3.1",
     "next": "16.2.1",
-    "next-pwa": "^2.0.2",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "recharts": "^3.8.0",
