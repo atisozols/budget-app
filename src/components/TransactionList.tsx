@@ -14,6 +14,7 @@ import {
 import { cn, formatCurrency } from "@/lib/utils";
 import { TransactionType } from "@/lib/types";
 import { format } from "date-fns";
+import AmountInput from "@/components/AmountInput";
 
 interface TransactionListProps {
   transactions: TransactionType[];
@@ -224,19 +225,10 @@ export default function TransactionList({
                             <span className="text-sm text-muted-foreground">
                               €
                             </span>
-                            <input
-                              type="text"
-                              inputMode="decimal"
+                            <AmountInput
                               value={editAmount}
-                              onChange={(e) => {
-                                const val = e.target.value.replace(
-                                  /[^0-9.]/g,
-                                  "",
-                                );
-                                if (val === "" || /^\d*\.?\d{0,2}$/.test(val))
-                                  setEditAmount(val);
-                              }}
-                              className="flex-1 p-1.5 bg-secondary rounded-lg text-sm outline-none"
+                              onChange={setEditAmount}
+                              className="flex-1 p-1.5 bg-secondary rounded-lg text-sm"
                               autoFocus
                             />
                           </div>

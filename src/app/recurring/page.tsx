@@ -19,6 +19,7 @@ import {
   TransactionType,
   BudgetType,
 } from "@/lib/types";
+import AmountInput from "@/components/AmountInput";
 
 const MONTH_NAMES = [
   "January",
@@ -307,16 +308,10 @@ export default function RecurringPage() {
                 placeholder="Payment name (e.g. Netflix, Rent)"
                 className="w-full p-2.5 bg-secondary rounded-xl text-sm outline-none"
               />
-              <input
-                type="text"
-                inputMode="decimal"
+              <AmountInput
                 value={amount}
-                onChange={(e) => {
-                  const val = e.target.value.replace(/[^0-9.]/g, "");
-                  if (val === "" || /^\d*\.?\d{0,2}$/.test(val)) setAmount(val);
-                }}
-                placeholder="Amount (€)"
-                className="w-full p-2.5 bg-secondary rounded-xl text-sm outline-none"
+                onChange={setAmount}
+                className="w-full p-2.5 bg-secondary rounded-xl text-sm"
               />
               <select
                 value={categoryId}
@@ -459,16 +454,10 @@ export default function RecurringPage() {
                   <div className="mt-2 pl-12 space-y-2">
                     <div className="flex items-center gap-2">
                       <span className="text-sm text-muted-foreground">€</span>
-                      <input
-                        type="text"
-                        inputMode="decimal"
+                      <AmountInput
                         value={editAmount}
-                        onChange={(e) => {
-                          const val = e.target.value.replace(/[^0-9.]/g, "");
-                          if (val === "" || /^\d*\.?\d{0,2}$/.test(val))
-                            setEditAmount(val);
-                        }}
-                        className="flex-1 p-1.5 bg-secondary rounded-lg text-sm outline-none"
+                        onChange={setEditAmount}
+                        className="flex-1 p-1.5 bg-secondary rounded-lg text-sm"
                         autoFocus
                       />
                     </div>

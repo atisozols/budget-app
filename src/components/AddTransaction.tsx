@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 import { CategoryType, BudgetType, IncomeType } from "@/lib/types";
+import AmountInput from "@/components/AmountInput";
 
 interface AddTransactionProps {
   onSuccess?: () => void;
@@ -132,16 +133,10 @@ export default function AddTransaction({ onSuccess }: AddTransactionProps) {
       <div className="text-center py-4">
         <div className="flex items-center justify-center gap-1">
           <span className="text-3xl text-muted-foreground">€</span>
-          <input
-            type="text"
-            inputMode="decimal"
+          <AmountInput
             value={amount}
-            onChange={(e) => {
-              const val = e.target.value.replace(/[^0-9.]/g, "");
-              if (val === "" || /^\d*\.?\d{0,2}$/.test(val)) setAmount(val);
-            }}
-            placeholder="0.00"
-            className="text-5xl font-bold bg-transparent text-center outline-none w-48 placeholder:text-muted-foreground/30"
+            onChange={setAmount}
+            className="text-5xl font-bold text-center w-48"
             autoFocus
           />
         </div>
