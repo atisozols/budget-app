@@ -1,0 +1,33 @@
+import mongoose, { Schema, Document } from "mongoose";
+
+export interface ITransaction extends Document {
+  amount: number;
+  type: "expense" | "income";
+  categoryId: mongoose.Types.ObjectId;
+  description: string;
+  date: Date;
+  tags: string[];
+  incomeType?: "bruto" | "neto";
+  isWriteOff: boolean;
+  recurringPaymentId?: mongoose.Types.ObjectId;
+  createdAt: Date;
+}
+
+const TransactionSchema = new Schema<ITransaction>({
+  amount: { type: Number, required: true },
+  type: { type: String, enum: ["expense", "income"], required: true },
+  categoryId: { type: Schema.Types.ObjectId, ref: "Category", required: true },
+  description: { type: String, default: "" },
+  date: { type: Date, required: true, default: Date.now },
+  tags: [{ type: String }],
+  incomeType: { type: String, enum: ["bruto", "neto"] },
+  isWriteOff: { type: Boolean, default: false },
+  recurringPaymentId: { type: Schema.Types.ObjectId, ref: "RecurringPayment" },
+  createdAt: { type: Date, default: Date.now },
+});
+
+TransactionSchema.index({ date: -1 });
+TransactionSchema.index({ type: 1, date: -1 });
+
+export default mongoose.models.Transaction ||
+  mongoose.model<ITransaction>("Transaction", TransactionSchema);
