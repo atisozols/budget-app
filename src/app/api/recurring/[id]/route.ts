@@ -4,7 +4,7 @@ import RecurringPayment from "@/lib/models/RecurringPayment";
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
     await connectToDatabase();
@@ -19,7 +19,7 @@ export async function PUT(
     if (!payment) {
       return NextResponse.json(
         { error: "Recurring payment not found" },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
@@ -28,24 +28,28 @@ export async function PUT(
     console.error("PUT /api/recurring/[id] error:", error);
     return NextResponse.json(
       { error: "Failed to update recurring payment" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
     await connectToDatabase();
     const { id } = await params;
-    const payment = await RecurringPayment.findByIdAndDelete(id);
+    const payment = await RecurringPayment.findByIdAndUpdate(
+      id,
+      { isActive: false },
+      { new: true },
+    );
 
     if (!payment) {
       return NextResponse.json(
         { error: "Recurring payment not found" },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
@@ -54,7 +58,7 @@ export async function DELETE(
     console.error("DELETE /api/recurring/[id] error:", error);
     return NextResponse.json(
       { error: "Failed to delete recurring payment" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

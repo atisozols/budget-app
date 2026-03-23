@@ -176,7 +176,9 @@ export default function RecurringPage() {
     try {
       const res = await fetch(`/api/recurring/${id}`, { method: "DELETE" });
       if (res.ok) {
-        setPayments((prev) => prev.filter((p) => p._id !== id));
+        setPayments((prev) =>
+          prev.map((p) => (p._id === id ? { ...p, isActive: false } : p)),
+        );
       }
     } catch (error) {
       console.error("Failed to delete:", error);

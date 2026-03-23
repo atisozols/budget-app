@@ -169,6 +169,11 @@ export default function Home() {
           onDelete={(id) =>
             setTransactions((prev) => prev.filter((t) => t._id !== id))
           }
+          onUpdate={(updated) =>
+            setTransactions((prev) =>
+              prev.map((t) => (t._id === updated._id ? updated : t)),
+            )
+          }
         />
       )}
     </div>
