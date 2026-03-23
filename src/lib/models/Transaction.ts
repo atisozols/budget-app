@@ -10,6 +10,7 @@ export interface ITransaction extends Document {
   incomeType?: "bruto" | "neto";
   isWriteOff: boolean;
   recurringPaymentId?: mongoose.Types.ObjectId;
+  debtPayment?: "tax" | "credit";
   createdAt: Date;
 }
 
@@ -23,6 +24,7 @@ const TransactionSchema = new Schema<ITransaction>({
   incomeType: { type: String, enum: ["bruto", "neto"] },
   isWriteOff: { type: Boolean, default: false },
   recurringPaymentId: { type: Schema.Types.ObjectId, ref: "RecurringPayment" },
+  debtPayment: { type: String, enum: ["tax", "credit"] },
   createdAt: { type: Date, default: Date.now },
 });
 

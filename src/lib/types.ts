@@ -19,6 +19,7 @@ export interface TransactionType {
   incomeType?: "bruto" | "neto";
   isWriteOff: boolean;
   recurringPaymentId?: string;
+  debtPayment?: "tax" | "credit";
   createdAt: string;
 }
 
@@ -31,11 +32,12 @@ export interface RecurringPaymentType {
   dueDay: number;
   isActive: boolean;
   budgetType: "needs" | "wants" | "savings";
+  isWriteOff: boolean;
 }
 
 export interface SettingsType {
   _id: string;
-  initialBalance: number;
+  currentBalance: number;
   taxDebt: number;
   creditDebt: number;
   incomeTags: string[];

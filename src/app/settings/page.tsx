@@ -17,7 +17,7 @@ import { SettingsType } from "@/lib/types";
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<SettingsType | null>(null);
-  const [initialBalance, setInitialBalance] = useState("");
+  const [currentBalance, setCurrentBalance] = useState("");
   const [taxDebt, setTaxDebt] = useState("");
   const [creditDebt, setCreditDebt] = useState("");
   const [vsaoiRate, setVsaoiRate] = useState("");
@@ -34,11 +34,11 @@ export default function SettingsPage() {
       .then((r) => r.json())
       .then((s: SettingsType) => {
         setSettings(s);
-        setInitialBalance(s.initialBalance.toString());
-        setTaxDebt(s.taxDebt.toString());
-        setCreditDebt(s.creditDebt.toString());
-        setVsaoiRate(s.vsaoiRate.toString());
-        setIinRate(s.iinRate.toString());
+        setCurrentBalance((s.currentBalance ?? 0).toString());
+        setTaxDebt((s.taxDebt ?? 0).toString());
+        setCreditDebt((s.creditDebt ?? 0).toString());
+        setVsaoiRate((s.vsaoiRate ?? 31.07).toString());
+        setIinRate((s.iinRate ?? 25.5).toString());
         setIncomeTags(s.incomeTags || []);
       })
       .catch(console.error);
@@ -51,7 +51,7 @@ export default function SettingsPage() {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          initialBalance: parseFloat(initialBalance) || 0,
+          currentBalance: parseFloat(currentBalance) || 0,
           taxDebt: parseFloat(taxDebt) || 0,
           creditDebt: parseFloat(creditDebt) || 0,
           vsaoiRate: parseFloat(vsaoiRate) || 31.07,
@@ -168,19 +168,23 @@ export default function SettingsPage() {
       </div>
 
       {/* Balance & Debts */}
-      <motion.div variants={itemVariants} className="p-4 bg-card rounded-2xl space-y-3">
+      <motion.div
+        variants={itemVariants}
+        className="p-4 bg-card rounded-2xl space-y-3"
+      >
         <h3 className="text-sm font-medium text-muted-foreground">
           Balance & Debts
         </h3>
 
         <div>
           <label className="text-xs text-muted-foreground">
-            Initial Balance (€)
+            Current Balance (€)
           </label>
           <input
             type="number"
-            value={initialBalance}
-            onChange={(e) => setInitialBalance(e.target.value)}
+            inputMode="decimal"
+            value={currentBalance}
+            onChange={(e) => setCurrentBalance(e.target.value)}
             className="w-full p-2.5 bg-secondary rounded-xl text-sm outline-none mt-1"
             step="0.01"
           />
@@ -211,36 +215,41 @@ export default function SettingsPage() {
         </div>
 
         <div className="p-3 bg-secondary/50 rounded-xl text-sm">
-          <div className="text-xs text-muted-foreground mb-1">Net Position</div>
+          <div className="text-xs text-muted-foreground mb-1">
+            Net Position (after debts)
+          </div>
           <div
             className={cn(
               "text-lg font-bold",
-              (parseFloat(initialBalance) || 0) -
+              (parseFloat(currentBalance) || 0) -
                 (parseFloat(taxDebt) || 0) -
                 (parseFloat(creditDebt) || 0) >=
                 0
                 ? "text-emerald-400"
-                : "text-red-400"
+                : "text-red-400",
             )}
           >
             {formatCurrency(
-              (parseFloat(initialBalance) || 0) -
+              (parseFloat(currentBalance) || 0) -
                 (parseFloat(taxDebt) || 0) -
-                (parseFloat(creditDebt) || 0)
+                (parseFloat(creditDebt) || 0),
             )}
           </div>
         </div>
       </motion.div>
 
       {/* Tax Rates */}
-      <motion.div variants={itemVariants} className="p-4 bg-card rounded-2xl space-y-3">
-        <h3 className="text-sm font-medium text-muted-foreground">
-          Tax Rates
-        </h3>
+      <motion.div
+        variants={itemVariants}
+        className="p-4 bg-card rounded-2xl space-y-3"
+      >
+        <h3 className="text-sm font-medium text-muted-foreground">Tax Rates</h3>
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-xs text-muted-foreground">IIN Rate (%)</label>
+            <label className="text-xs text-muted-foreground">
+              IIN Rate (%)
+            </label>
             <input
               type="number"
               value={iinRate}
@@ -265,7 +274,10 @@ export default function SettingsPage() {
       </motion.div>
 
       {/* Income Tags */}
-      <motion.div variants={itemVariants} className="p-4 bg-card rounded-2xl space-y-3">
+      <motion.div
+        variants={itemVariants}
+        className="p-4 bg-card rounded-2xl space-y-3"
+      >
         <h3 className="text-sm font-medium text-muted-foreground">
           Income Tags
         </h3>
@@ -319,7 +331,7 @@ export default function SettingsPage() {
           "w-full py-3.5 rounded-xl font-semibold text-sm transition-all flex items-center justify-center gap-2",
           saved
             ? "bg-emerald-500 text-white"
-            : "bg-primary text-primary-foreground hover:opacity-90"
+            : "bg-primary text-primary-foreground hover:opacity-90",
         )}
       >
         {saved ? (
@@ -338,7 +350,10 @@ export default function SettingsPage() {
       </motion.button>
 
       {/* Export / Import */}
-      <motion.div variants={itemVariants} className="p-4 bg-card rounded-2xl space-y-3">
+      <motion.div
+        variants={itemVariants}
+        className="p-4 bg-card rounded-2xl space-y-3"
+      >
         <h3 className="text-sm font-medium text-muted-foreground">
           Data Management
         </h3>
@@ -369,7 +384,7 @@ export default function SettingsPage() {
               "p-3 rounded-xl text-sm flex items-center gap-2",
               importStatus.includes("success")
                 ? "bg-emerald-500/10 text-emerald-400"
-                : "bg-red-500/10 text-red-400"
+                : "bg-red-500/10 text-red-400",
             )}
           >
             {importStatus.includes("success") ? (

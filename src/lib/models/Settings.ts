@@ -1,7 +1,7 @@
 import mongoose, { Schema, Document } from "mongoose";
 
 export interface ISettings extends Document {
-  initialBalance: number;
+  currentBalance: number;
   taxDebt: number;
   creditDebt: number;
   incomeTags: string[];
@@ -13,14 +13,14 @@ export interface ISettings extends Document {
 
 const SettingsSchema = new Schema<ISettings>(
   {
-    initialBalance: { type: Number, default: 0 },
+    currentBalance: { type: Number, default: 0 },
     taxDebt: { type: Number, default: 0 },
     creditDebt: { type: Number, default: 0 },
     incomeTags: [{ type: String }],
     vsaoiRate: { type: Number, default: 31.07 },
     iinRate: { type: Number, default: 25.5 },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 export default mongoose.models.Settings ||

@@ -27,7 +27,7 @@ export default function Navigation() {
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card/80 backdrop-blur-xl border-t border-border pb-[env(safe-area-inset-bottom)]">
-      <div className="max-w-lg mx-auto flex items-center justify-around px-2 py-1">
+      <div className="max-w-lg mx-auto grid grid-cols-6 px-1 py-1">
         {navItems.map((item) => {
           const isActive = pathname === item.href;
           return (
@@ -35,7 +35,7 @@ export default function Navigation() {
               key={item.href}
               href={item.href}
               className={cn(
-                "relative flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl transition-colors",
+                "relative flex flex-col items-center justify-center gap-0.5 aspect-square rounded-xl transition-colors",
                 isActive
                   ? "text-primary"
                   : "text-muted-foreground hover:text-foreground",
@@ -44,7 +44,7 @@ export default function Navigation() {
               {isActive && (
                 <motion.div
                   layoutId="nav-indicator"
-                  className="absolute inset-0 bg-primary/10 rounded-xl"
+                  className="absolute inset-1 bg-primary/10 rounded-xl"
                   transition={{ type: "spring", stiffness: 500, damping: 30 }}
                 />
               )}

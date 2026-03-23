@@ -2,17 +2,49 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { List, Plus } from "lucide-react";
+import { List, Plus, ChevronLeft, ChevronRight } from "lucide-react";
 import AddTransaction from "@/components/AddTransaction";
 import TransactionList from "@/components/TransactionList";
 import { TransactionType } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
 
+const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
 export default function Home() {
   const [transactions, setTransactions] = useState<TransactionType[]>([]);
   const [view, setView] = useState<"add" | "list">("add");
-  const [month] = useState(new Date().getMonth() + 1);
-  const [year] = useState(new Date().getFullYear());
+  const [month, setMonth] = useState(new Date().getMonth() + 1);
+  const [year, setYear] = useState(new Date().getFullYear());
+
+  const isCurrentMonth =
+    month === new Date().getMonth() + 1 && year === new Date().getFullYear();
+
+  const goMonth = (dir: -1 | 1) => {
+    setMonth((m) => {
+      let newM = m + dir;
+      if (newM < 1) {
+        setYear((y) => y - 1);
+        newM = 12;
+      } else if (newM > 12) {
+        setYear((y) => y + 1);
+        newM = 1;
+      }
+      return newM;
+    });
+  };
 
   const fetchTransactions = useCallback(() => {
     fetch(`/api/transactions?month=${month}&year=${year}`)
@@ -35,6 +67,37 @@ export default function Home() {
 
   return (
     <div className="space-y-4">
+      {/* Month Navigator */}
+      <div className="flex items-center justify-between">
+        <button
+          onClick={() => goMonth(-1)}
+          className="p-2 rounded-xl bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ChevronLeft className="w-4 h-4" />
+        </button>
+        <button
+          onClick={() => {
+            setMonth(new Date().getMonth() + 1);
+            setYear(new Date().getFullYear());
+          }}
+          className="text-sm font-semibold"
+        >
+          {MONTH_NAMES[month - 1]} {year}
+          {isCurrentMonth && (
+            <span className="ml-1.5 text-[10px] text-muted-foreground font-normal">
+              (now)
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => goMonth(1)}
+          disabled={isCurrentMonth}
+          className="p-2 rounded-xl bg-secondary text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30"
+        >
+          <ChevronRight className="w-4 h-4" />
+        </button>
+      </div>
+
       {/* Month summary bar */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}

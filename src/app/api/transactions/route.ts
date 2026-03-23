@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectToDatabase } from "@/lib/mongodb";
 import Transaction from "@/lib/models/Transaction";
+import Settings from "@/lib/models/Settings";
 
 export async function GET(request: NextRequest) {
   try {
@@ -32,7 +33,7 @@ export async function GET(request: NextRequest) {
     console.error("GET /api/transactions error:", error);
     return NextResponse.json(
       { error: "Failed to fetch transactions" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
@@ -42,6 +43,16 @@ export async function POST(request: NextRequest) {
     await connectToDatabase();
     const body = await request.json();
     const transaction = await Transaction.create(body);
+
+    // Auto-reduce debt when a debt payment is logged
+    if (body.debtPayment) {
+      const field = body.debtPayment === "tax" ? "taxDebt" : "creditDebt";
+      await Settings.findOneAndUpdate(
+        {},
+        { $inc: { [field]: -transaction.amount } },
+      );
+    }
+
     const populated = await Transaction.findById(transaction._id)
       .populate("categoryId")
       .lean();
@@ -50,7 +61,7 @@ export async function POST(request: NextRequest) {
     console.error("POST /api/transactions error:", error);
     return NextResponse.json(
       { error: "Failed to create transaction" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

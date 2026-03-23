@@ -8,6 +8,7 @@ export interface IRecurringPayment extends Document {
   dueDay: number;
   isActive: boolean;
   budgetType: "needs" | "wants" | "savings";
+  isWriteOff: boolean;
   createdAt: Date;
 }
 
@@ -22,6 +23,7 @@ const RecurringPaymentSchema = new Schema<IRecurringPayment>({
   },
   dueDay: { type: Number, default: 1, min: 1, max: 31 },
   isActive: { type: Boolean, default: true },
+  isWriteOff: { type: Boolean, default: false },
   budgetType: {
     type: String,
     enum: ["needs", "wants", "savings"],
@@ -31,7 +33,4 @@ const RecurringPaymentSchema = new Schema<IRecurringPayment>({
 });
 
 export default mongoose.models.RecurringPayment ||
-  mongoose.model<IRecurringPayment>(
-    "RecurringPayment",
-    RecurringPaymentSchema
-  );
+  mongoose.model<IRecurringPayment>("RecurringPayment", RecurringPaymentSchema);

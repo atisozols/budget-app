@@ -2,13 +2,12 @@
 
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
+import { TrendingUp, TrendingDown, AlertTriangle, Anchor } from "lucide-react";
 import {
-  TrendingUp,
-  TrendingDown,
-  AlertTriangle,
-  Anchor,
-} from "lucide-react";
-import { formatCurrency, getHealthScore, BUDGET_TYPE_COLORS } from "@/lib/utils";
+  formatCurrency,
+  getHealthScore,
+  BUDGET_TYPE_COLORS,
+} from "@/lib/utils";
 import { TransactionType, SettingsType } from "@/lib/types";
 import HealthScore from "@/components/HealthScore";
 import BudgetDonut from "@/components/BudgetDonut";
@@ -22,7 +21,7 @@ export default function DashboardPage() {
   useEffect(() => {
     Promise.all([
       fetch(`/api/transactions?month=${month}&year=${year}`).then((r) =>
-        r.json()
+        r.json(),
       ),
       fetch("/api/settings").then((r) => r.json()),
     ])
@@ -55,16 +54,15 @@ export default function DashboardPage() {
     .reduce((s, t) => s + t.amount, 0);
   const savingsSpend = transactions
     .filter(
-      (t) => t.type === "expense" && t.categoryId?.budgetType === "savings"
+      (t) => t.type === "expense" && t.categoryId?.budgetType === "savings",
     )
     .reduce((s, t) => s + t.amount, 0);
 
   const monthBalance = totalIncome - totalExpense;
-  const initialBalance = settings?.initialBalance || 0;
+  const currentBalance = settings?.currentBalance || 0;
   const taxDebt = settings?.taxDebt || 0;
   const creditDebt = settings?.creditDebt || 0;
   const totalDebt = taxDebt + creditDebt;
-  const currentBalance = initialBalance + monthBalance;
   const aboveWater = currentBalance - totalDebt;
 
   const healthData = getHealthScore({
@@ -72,8 +70,7 @@ export default function DashboardPage() {
     totalDebt,
     needsRatio: totalExpense > 0 ? (needsSpend / totalExpense) * 100 : 50,
     wantsRatio: totalExpense > 0 ? (wantsSpend / totalExpense) * 100 : 30,
-    savingsRatio:
-      totalExpense > 0 ? (savingsSpend / totalExpense) * 100 : 20,
+    savingsRatio: totalExpense > 0 ? (savingsSpend / totalExpense) * 100 : 20,
     monthlyIncome: totalIncome,
     monthlyExpenses: totalExpense,
   });
@@ -113,7 +110,7 @@ export default function DashboardPage() {
     });
 
   const sortedCategories = Object.values(spendByCategory).sort(
-    (a, b) => b.amount - a.amount
+    (a, b) => b.amount - a.amount,
   );
 
   const containerVariants = {
@@ -257,10 +254,7 @@ export default function DashboardPage() {
 
       {/* Income Sources */}
       {Object.keys(incomeByTag).length > 0 && (
-        <motion.div
-          variants={itemVariants}
-          className="p-4 bg-card rounded-2xl"
-        >
+        <motion.div variants={itemVariants} className="p-4 bg-card rounded-2xl">
           <h3 className="text-sm font-medium text-muted-foreground mb-3">
             Income Sources
           </h3>
@@ -268,8 +262,7 @@ export default function DashboardPage() {
             {Object.entries(incomeByTag)
               .sort((a, b) => b[1] - a[1])
               .map(([tag, amount], i) => {
-                const pct =
-                  totalIncome > 0 ? (amount / totalIncome) * 100 : 0;
+                const pct = totalIncome > 0 ? (amount / totalIncome) * 100 : 0;
                 const colors = [
                   "#6366f1",
                   "#22c55e",
@@ -304,10 +297,7 @@ export default function DashboardPage() {
 
       {/* Spending by Category */}
       {sortedCategories.length > 0 && (
-        <motion.div
-          variants={itemVariants}
-          className="p-4 bg-card rounded-2xl"
-        >
+        <motion.div variants={itemVariants} className="p-4 bg-card rounded-2xl">
           <h3 className="text-sm font-medium text-muted-foreground mb-3">
             Spending by Category
           </h3>
@@ -316,10 +306,7 @@ export default function DashboardPage() {
               const pct =
                 totalExpense > 0 ? (cat.amount / totalExpense) * 100 : 0;
               return (
-                <div
-                  key={cat.name}
-                  className="flex items-center gap-3 text-sm"
-                >
+                <div key={cat.name} className="flex items-center gap-3 text-sm">
                   <span
                     className="w-8 h-8 rounded-lg flex items-center justify-center text-sm shrink-0"
                     style={{ backgroundColor: cat.color + "20" }}

@@ -9,7 +9,7 @@ export async function GET() {
 
     if (!settings) {
       settings = await Settings.create({
-        initialBalance: 0,
+        currentBalance: 0,
         taxDebt: 0,
         creditDebt: 0,
         incomeTags: ["Freelance", "Salary", "Contract", "Other"],
@@ -19,12 +19,29 @@ export async function GET() {
       settings = await Settings.findById(settings._id).lean();
     }
 
+    // Migrate old field name if it exists
+    const doc = settings as Record<string, unknown>;
+    if (doc.initialBalance !== undefined) {
+      const mongoose = await import("mongoose");
+      await Settings.collection.updateOne(
+        { _id: new mongoose.Types.ObjectId(String(doc._id)) },
+        {
+          $set: { currentBalance: doc.currentBalance ?? doc.initialBalance },
+          $unset: { initialBalance: "" },
+        },
+      );
+      if (doc.currentBalance === undefined) {
+        doc.currentBalance = doc.initialBalance;
+      }
+      delete doc.initialBalance;
+    }
+
     return NextResponse.json(settings);
   } catch (error) {
     console.error("GET /api/settings error:", error);
     return NextResponse.json(
       { error: "Failed to fetch settings" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
@@ -48,7 +65,7 @@ export async function PUT(request: NextRequest) {
     console.error("PUT /api/settings error:", error);
     return NextResponse.json(
       { error: "Failed to update settings" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

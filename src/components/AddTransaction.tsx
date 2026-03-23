@@ -25,6 +25,7 @@ export default function AddTransaction({ onSuccess }: AddTransactionProps) {
   const [categories, setCategories] = useState<CategoryType[]>([]);
   const [showCategories, setShowCategories] = useState(false);
   const [isWriteOff, setIsWriteOff] = useState(false);
+  const [debtPayment, setDebtPayment] = useState<"tax" | "credit" | "">("");
   const [incomeType, setIncomeType] = useState<IncomeType>("neto");
   const [tags, setTags] = useState<string[]>([]);
   const [availableTags, setAvailableTags] = useState<string[]>([]);
@@ -63,6 +64,9 @@ export default function AddTransaction({ onSuccess }: AddTransactionProps) {
       if (type === "income") {
         body.incomeType = incomeType;
       }
+      if (type === "expense" && debtPayment) {
+        body.debtPayment = debtPayment;
+      }
 
       const res = await fetch("/api/transactions", {
         method: "POST",
@@ -77,6 +81,7 @@ export default function AddTransaction({ onSuccess }: AddTransactionProps) {
           setDescription("");
           setCategoryId("");
           setIsWriteOff(false);
+          setDebtPayment("");
           setTags([]);
           setSaved(false);
           onSuccess?.();
@@ -110,7 +115,7 @@ export default function AddTransaction({ onSuccess }: AddTransactionProps) {
                 ? t === "expense"
                   ? "bg-red-500/20 text-red-400"
                   : "bg-emerald-500/20 text-emerald-400"
-                : "text-muted-foreground hover:text-foreground"
+                : "text-muted-foreground hover:text-foreground",
             )}
           >
             {t === "expense" ? (
@@ -128,13 +133,15 @@ export default function AddTransaction({ onSuccess }: AddTransactionProps) {
         <div className="flex items-center justify-center gap-1">
           <span className="text-3xl text-muted-foreground">€</span>
           <input
-            type="number"
+            type="text"
+            inputMode="decimal"
             value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            onChange={(e) => {
+              const val = e.target.value.replace(/[^0-9.]/g, "");
+              if (val === "" || /^\d*\.?\d{0,2}$/.test(val)) setAmount(val);
+            }}
             placeholder="0.00"
             className="text-5xl font-bold bg-transparent text-center outline-none w-48 placeholder:text-muted-foreground/30"
-            step="0.01"
-            min="0"
             autoFocus
           />
         </div>
@@ -173,7 +180,7 @@ export default function AddTransaction({ onSuccess }: AddTransactionProps) {
           <ChevronDown
             className={cn(
               "w-4 h-4 text-muted-foreground transition-transform",
-              showCategories && "rotate-180"
+              showCategories && "rotate-180",
             )}
           />
         </button>
@@ -200,7 +207,7 @@ export default function AddTransaction({ onSuccess }: AddTransactionProps) {
                       "flex flex-col items-center gap-1.5 p-3 rounded-xl transition-all",
                       categoryId === cat._id
                         ? "ring-2 ring-primary bg-primary/10"
-                        : "bg-secondary hover:bg-secondary/80"
+                        : "bg-secondary hover:bg-secondary/80",
                     )}
                   >
                     <span
@@ -240,12 +247,10 @@ export default function AddTransaction({ onSuccess }: AddTransactionProps) {
                   "flex-1 py-2.5 rounded-xl text-sm font-medium transition-all",
                   incomeType === it
                     ? "bg-primary/20 text-primary ring-1 ring-primary/50"
-                    : "bg-secondary text-muted-foreground"
+                    : "bg-secondary text-muted-foreground",
                 )}
               >
-                {it === "bruto"
-                  ? "Bruto (Self-employed)"
-                  : "Neto (After tax)"}
+                {it === "bruto" ? "Bruto (Self-employed)" : "Neto (After tax)"}
               </button>
             ))}
           </div>
@@ -263,14 +268,14 @@ export default function AddTransaction({ onSuccess }: AddTransactionProps) {
                     setTags((prev) =>
                       prev.includes(tag)
                         ? prev.filter((t) => t !== tag)
-                        : [...prev, tag]
+                        : [...prev, tag],
                     )
                   }
                   className={cn(
                     "px-3 py-1.5 rounded-lg text-xs font-medium transition-all",
                     tags.includes(tag)
                       ? "bg-primary/20 text-primary ring-1 ring-primary/50"
-                      : "bg-secondary text-muted-foreground"
+                      : "bg-secondary text-muted-foreground",
                   )}
                 >
                   {tag}
@@ -281,34 +286,67 @@ export default function AddTransaction({ onSuccess }: AddTransactionProps) {
         </motion.div>
       )}
 
-      {/* Write-off checkbox (only for expenses) */}
+      {/* Expense options: write-off & debt payment */}
       {type === "expense" && (
-        <motion.button
+        <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          onClick={() => setIsWriteOff(!isWriteOff)}
-          className={cn(
-            "w-full flex items-center gap-3 p-3 rounded-xl transition-all",
-            isWriteOff
-              ? "bg-amber-500/10 ring-1 ring-amber-500/30"
-              : "bg-secondary"
-          )}
+          className="space-y-2"
         >
-          <div
+          {/* Debt Payment Toggle */}
+          <div className="flex gap-2">
+            {(["", "tax", "credit"] as const).map((dp) => (
+              <button
+                key={dp}
+                type="button"
+                onClick={() => setDebtPayment(dp)}
+                className={cn(
+                  "flex-1 py-2 rounded-xl text-xs font-medium transition-all",
+                  debtPayment === dp
+                    ? dp === ""
+                      ? "bg-secondary ring-1 ring-primary/50 text-foreground"
+                      : dp === "tax"
+                        ? "bg-orange-500/20 text-orange-400 ring-1 ring-orange-500/30"
+                        : "bg-blue-500/20 text-blue-400 ring-1 ring-blue-500/30"
+                    : "bg-secondary text-muted-foreground",
+                )}
+              >
+                {dp === ""
+                  ? "Regular"
+                  : dp === "tax"
+                    ? "Tax Payment"
+                    : "Credit Payment"}
+              </button>
+            ))}
+          </div>
+
+          {/* Write-off checkbox */}
+          <button
+            type="button"
+            onClick={() => setIsWriteOff(!isWriteOff)}
             className={cn(
-              "w-5 h-5 rounded border-2 flex items-center justify-center transition-all",
+              "w-full flex items-center gap-3 p-3 rounded-xl transition-all",
               isWriteOff
-                ? "bg-amber-500 border-amber-500"
-                : "border-muted-foreground"
+                ? "bg-amber-500/10 ring-1 ring-amber-500/30"
+                : "bg-secondary",
             )}
           >
-            {isWriteOff && <Check className="w-3 h-3 text-white" />}
-          </div>
-          <div className="flex items-center gap-2">
-            <FileText className="w-4 h-4 text-muted-foreground" />
-            <span className="text-sm">Write off (deductible expense)</span>
-          </div>
-        </motion.button>
+            <div
+              className={cn(
+                "w-5 h-5 rounded border-2 flex items-center justify-center transition-all",
+                isWriteOff
+                  ? "bg-amber-500 border-amber-500"
+                  : "border-muted-foreground",
+              )}
+            >
+              {isWriteOff && <Check className="w-3 h-3 text-white" />}
+            </div>
+            <div className="flex items-center gap-2">
+              <FileText className="w-4 h-4 text-muted-foreground" />
+              <span className="text-sm">Write off (deductible expense)</span>
+            </div>
+          </button>
+        </motion.div>
       )}
 
       {/* Description */}
@@ -321,12 +359,69 @@ export default function AddTransaction({ onSuccess }: AddTransactionProps) {
       />
 
       {/* Date */}
-      <input
-        type="date"
-        value={date}
-        onChange={(e) => setDate(e.target.value)}
-        className="w-full p-3 bg-secondary rounded-xl text-sm outline-none focus:ring-1 focus:ring-primary/50 transition-all [color-scheme:dark]"
-      />
+      <div className="space-y-2">
+        <div className="flex gap-2">
+          {[
+            { label: "Today", offset: 0 },
+            { label: "Yesterday", offset: -1 },
+            { label: "2 days ago", offset: -2 },
+          ].map((d) => {
+            const dt = new Date();
+            dt.setDate(dt.getDate() + d.offset);
+            const val = dt.toISOString().split("T")[0];
+            return (
+              <button
+                key={d.label}
+                type="button"
+                onClick={() => setDate(val)}
+                className={cn(
+                  "flex-1 py-2 rounded-xl text-xs font-medium transition-all",
+                  date === val
+                    ? "bg-primary/20 text-primary ring-1 ring-primary/50"
+                    : "bg-secondary text-muted-foreground",
+                )}
+              >
+                {d.label}
+              </button>
+            );
+          })}
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            const input = document.createElement("input");
+            input.type = "date";
+            input.value = date;
+            input.style.position = "fixed";
+            input.style.opacity = "0";
+            input.style.top = "50%";
+            input.style.left = "50%";
+            document.body.appendChild(input);
+            const cleanup = () => {
+              try {
+                input.remove();
+              } catch {
+                /* already removed */
+              }
+            };
+            input.addEventListener("change", (e) => {
+              setDate((e.target as HTMLInputElement).value);
+              cleanup();
+            });
+            input.addEventListener("blur", cleanup);
+            input.showPicker?.();
+            input.focus();
+          }}
+          className="w-full p-3 bg-secondary rounded-xl text-sm text-left text-muted-foreground hover:bg-secondary/80 transition-colors"
+        >
+          {new Date(date + "T12:00:00").toLocaleDateString("en-GB", {
+            weekday: "short",
+            day: "numeric",
+            month: "short",
+            year: "numeric",
+          })}
+        </button>
+      </div>
 
       {/* Submit Button */}
       <motion.button
@@ -341,7 +436,7 @@ export default function AddTransaction({ onSuccess }: AddTransactionProps) {
               ? "bg-secondary text-muted-foreground cursor-not-allowed"
               : type === "expense"
                 ? "bg-red-500 hover:bg-red-600 text-white"
-                : "bg-emerald-500 hover:bg-emerald-600 text-white"
+                : "bg-emerald-500 hover:bg-emerald-600 text-white",
         )}
       >
         <AnimatePresence mode="wait">

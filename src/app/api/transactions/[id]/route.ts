@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectToDatabase } from "@/lib/mongodb";
 import Transaction from "@/lib/models/Transaction";
+import Settings from "@/lib/models/Settings";
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
     await connectToDatabase();
@@ -19,7 +20,7 @@ export async function PUT(
     if (!transaction) {
       return NextResponse.json(
         { error: "Transaction not found" },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
@@ -28,14 +29,14 @@ export async function PUT(
     console.error("PUT /api/transactions/[id] error:", error);
     return NextResponse.json(
       { error: "Failed to update transaction" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
     await connectToDatabase();
@@ -45,7 +46,17 @@ export async function DELETE(
     if (!transaction) {
       return NextResponse.json(
         { error: "Transaction not found" },
-        { status: 404 }
+        { status: 404 },
+      );
+    }
+
+    // Reverse debt adjustment if this was a debt payment
+    if (transaction.debtPayment) {
+      const field =
+        transaction.debtPayment === "tax" ? "taxDebt" : "creditDebt";
+      await Settings.findOneAndUpdate(
+        {},
+        { $inc: { [field]: transaction.amount } },
       );
     }
 
@@ -54,7 +65,7 @@ export async function DELETE(
     console.error("DELETE /api/transactions/[id] error:", error);
     return NextResponse.json(
       { error: "Failed to delete transaction" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
