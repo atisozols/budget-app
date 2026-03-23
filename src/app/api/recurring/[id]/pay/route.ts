@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectToDatabase } from "@/lib/mongodb";
 import RecurringPayment from "@/lib/models/RecurringPayment";
 import Transaction from "@/lib/models/Transaction";
+import "@/lib/models/Category";
 
 export async function POST(
   request: NextRequest,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectToDatabase } from "@/lib/mongodb";
 import RecurringPayment from "@/lib/models/RecurringPayment";
+import "@/lib/models/Category";
 
 export async function GET() {
   try {
@@ -14,7 +15,7 @@ export async function GET() {
     console.error("GET /api/recurring error:", error);
     return NextResponse.json(
       { error: "Failed to fetch recurring payments" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
@@ -32,7 +33,7 @@ export async function POST(request: NextRequest) {
     console.error("POST /api/recurring error:", error);
     return NextResponse.json(
       { error: "Failed to create recurring payment" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

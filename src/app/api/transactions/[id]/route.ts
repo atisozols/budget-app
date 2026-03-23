@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectToDatabase } from "@/lib/mongodb";
 import Transaction from "@/lib/models/Transaction";
 import Settings from "@/lib/models/Settings";
+import "@/lib/models/Category";
 
 export async function PUT(
   request: NextRequest,

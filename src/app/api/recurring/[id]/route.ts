@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectToDatabase } from "@/lib/mongodb";
 import RecurringPayment from "@/lib/models/RecurringPayment";
+import "@/lib/models/Category";
 
 export async function PUT(
   request: NextRequest,
