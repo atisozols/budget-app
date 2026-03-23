@@ -35,7 +35,7 @@ export default function Navigation() {
               key={item.href}
               href={item.href}
               className={cn(
-                "relative flex flex-col items-center justify-center gap-0.5 aspect-square rounded-xl transition-colors",
+                "relative flex flex-col items-center justify-center gap-0.5 py-1.5 rounded-xl transition-colors",
                 isActive
                   ? "text-primary"
                   : "text-muted-foreground hover:text-foreground",
