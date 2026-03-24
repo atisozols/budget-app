@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 import { SettingsType, CategoryType, BudgetType } from "@/lib/types";
+import { format } from "date-fns";
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<SettingsType | null>(null);
@@ -335,9 +336,16 @@ export default function SettingsPage() {
         </h3>
 
         <div>
-          <label className="text-xs text-muted-foreground">
-            Current Balance (€)
-          </label>
+          <div className="flex items-center justify-between">
+            <label className="text-xs text-muted-foreground">
+              Current Balance (€)
+            </label>
+            {settings?.balanceDate && (
+              <span className="text-[10px] text-muted-foreground/60">
+                Set {format(new Date(settings.balanceDate), "MMM d, yyyy")}
+              </span>
+            )}
+          </div>
           <input
             type="number"
             inputMode="decimal"
@@ -349,7 +357,16 @@ export default function SettingsPage() {
         </div>
 
         <div>
-          <label className="text-xs text-muted-foreground">Tax Debt (€)</label>
+          <div className="flex items-center justify-between">
+            <label className="text-xs text-muted-foreground">
+              Tax Debt (€)
+            </label>
+            {settings?.taxDebtDate && (
+              <span className="text-[10px] text-muted-foreground/60">
+                Set {format(new Date(settings.taxDebtDate), "MMM d, yyyy")}
+              </span>
+            )}
+          </div>
           <input
             type="number"
             value={taxDebt}
@@ -360,9 +377,16 @@ export default function SettingsPage() {
         </div>
 
         <div>
-          <label className="text-xs text-muted-foreground">
-            Credit Debt (€)
-          </label>
+          <div className="flex items-center justify-between">
+            <label className="text-xs text-muted-foreground">
+              Credit Debt (€)
+            </label>
+            {settings?.creditDebtDate && (
+              <span className="text-[10px] text-muted-foreground/60">
+                Set {format(new Date(settings.creditDebtDate), "MMM d, yyyy")}
+              </span>
+            )}
+          </div>
           <input
             type="number"
             value={creditDebt}

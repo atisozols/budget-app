@@ -40,7 +40,9 @@ export interface SettingsType {
   currentBalance: number;
   balanceDate: string;
   taxDebt: number;
+  taxDebtDate: string;
   creditDebt: number;
+  creditDebtDate: string;
   incomeTags: string[];
   vsaoiRate: number;
   iinRate: number;

@@ -5,6 +5,8 @@ import Navigation from "@/components/Navigation";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
 import MonthSwitcher from "@/components/MonthSwitcher";
 import { MonthProvider } from "@/lib/MonthContext";
+import { AppDataProvider } from "@/lib/AppDataContext";
+import LoadingGate from "@/components/LoadingGate";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -51,17 +53,21 @@ export default function RootLayout({
         style={{ minHeight: "100dvh" }}
       >
         <MonthProvider>
-          <ServiceWorkerRegister />
-          <div
-            className="max-w-lg mx-auto w-full px-4"
-            style={{
-              paddingTop: "calc(env(safe-area-inset-top, 0px) + 0.75rem)",
-            }}
-          >
-            <MonthSwitcher />
-            <main className="flex-1 pb-28">{children}</main>
-          </div>
-          <Navigation />
+          <AppDataProvider>
+            <ServiceWorkerRegister />
+            <LoadingGate>
+              <div
+                className="max-w-lg mx-auto w-full px-4"
+                style={{
+                  paddingTop: "calc(env(safe-area-inset-top, 0px) + 0.75rem)",
+                }}
+              >
+                <MonthSwitcher />
+                <main className="flex-1 pb-28">{children}</main>
+              </div>
+              <Navigation />
+            </LoadingGate>
+          </AppDataProvider>
         </MonthProvider>
       </body>
     </html>

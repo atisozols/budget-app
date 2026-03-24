@@ -1,27 +1,25 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useMemo } from "react";
 import { motion } from "framer-motion";
 import { Clock } from "lucide-react";
 import TransactionList from "@/components/TransactionList";
-import { TransactionType } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
 import { useMonth } from "@/lib/MonthContext";
+import { useAppData } from "@/lib/AppDataContext";
 
 export default function HistoryPage() {
   const { month, year } = useMonth();
-  const [transactions, setTransactions] = useState<TransactionType[]>([]);
+  const { transactions: allTxs, refetchTransactions } = useAppData();
 
-  const fetchTransactions = useCallback(() => {
-    fetch(`/api/transactions?month=${month}&year=${year}`)
-      .then((r) => r.json())
-      .then(setTransactions)
-      .catch(console.error);
-  }, [month, year]);
-
-  useEffect(() => {
-    fetchTransactions();
-  }, [fetchTransactions]);
+  const transactions = useMemo(
+    () =>
+      allTxs.filter((t) => {
+        const d = new Date(t.date);
+        return d.getMonth() + 1 === month && d.getFullYear() === year;
+      }),
+    [allTxs, month, year],
+  );
 
   const totalIncome = transactions
     .filter((t) => t.type === "income")
@@ -81,14 +79,8 @@ export default function HistoryPage() {
 
       <TransactionList
         transactions={transactions}
-        onDelete={(id) =>
-          setTransactions((prev) => prev.filter((t) => t._id !== id))
-        }
-        onUpdate={(updated) =>
-          setTransactions((prev) =>
-            prev.map((t) => (t._id === updated._id ? updated : t)),
-          )
-        }
+        onDelete={() => refetchTransactions()}
+        onUpdate={() => refetchTransactions()}
       />
     </motion.div>
   );

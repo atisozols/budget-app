@@ -1,16 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  ArrowDownCircle,
-  ArrowUpCircle,
-  Check,
-  ChevronDown,
-  FileText,
-} from "lucide-react";
+import { Check, FileText, Calendar } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
-import { CategoryType, BudgetType, IncomeType } from "@/lib/types";
+import { IncomeType } from "@/lib/types";
+import { useAppData } from "@/lib/AppDataContext";
 import AmountInput from "@/components/AmountInput";
 
 interface AddTransactionProps {
@@ -18,38 +13,37 @@ interface AddTransactionProps {
 }
 
 export default function AddTransaction({ onSuccess }: AddTransactionProps) {
+  const { categories, settings, transactions } = useAppData();
   const [type, setType] = useState<"expense" | "income">("expense");
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [categoryId, setCategoryId] = useState("");
-  const [categories, setCategories] = useState<CategoryType[]>([]);
-  const [showCategories, setShowCategories] = useState(false);
   const [isWriteOff, setIsWriteOff] = useState(false);
   const [debtPayment, setDebtPayment] = useState<"tax" | "credit" | "">("");
   const [incomeType, setIncomeType] = useState<IncomeType>("neto");
   const [tags, setTags] = useState<string[]>([]);
-  const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  useEffect(() => {
-    fetch("/api/categories")
-      .then((r) => r.json())
-      .then(setCategories)
-      .catch(console.error);
-    fetch("/api/settings")
-      .then((r) => r.json())
-      .then((s) => setAvailableTags(s.incomeTags || []))
-      .catch(console.error);
-  }, []);
+  const availableTags = settings?.incomeTags || [];
 
-  const filteredCategories = categories.filter((c) => c.type === type);
-  const selectedCategory = categories.find((c) => c._id === categoryId);
+  // Sort categories by usage frequency (most used first)
+  const filteredCategories = useMemo(() => {
+    const freq = new Map<string, number>();
+    for (const t of transactions) {
+      if (t.type === type) {
+        const id = t.categoryId?._id;
+        if (id) freq.set(id, (freq.get(id) || 0) + 1);
+      }
+    }
+    return categories
+      .filter((c) => c.type === type)
+      .sort((a, b) => (freq.get(b._id) || 0) - (freq.get(a._id) || 0));
+  }, [categories, transactions, type]);
 
   const handleSubmit = async () => {
     if (!amount || !categoryId) return;
-
     setSaving(true);
     try {
       const body: Record<string, unknown> = {
@@ -61,20 +55,14 @@ export default function AddTransaction({ onSuccess }: AddTransactionProps) {
         isWriteOff: type === "expense" ? isWriteOff : false,
         tags: type === "income" ? tags : [],
       };
-
-      if (type === "income") {
-        body.incomeType = incomeType;
-      }
-      if (type === "expense" && debtPayment) {
-        body.debtPayment = debtPayment;
-      }
+      if (type === "income") body.incomeType = incomeType;
+      if (type === "expense" && debtPayment) body.debtPayment = debtPayment;
 
       const res = await fetch("/api/transactions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-
       if (res.ok) {
         setSaved(true);
         setTimeout(() => {
@@ -95,14 +83,49 @@ export default function AddTransaction({ onSuccess }: AddTransactionProps) {
     }
   };
 
+  const dateShortcuts = [
+    { label: "Today", offset: 0 },
+    { label: "Yesterday", offset: -1 },
+    { label: "2d ago", offset: -2 },
+  ];
+
+  const openDatePicker = () => {
+    const input = document.createElement("input");
+    input.type = "date";
+    input.value = date;
+    input.style.cssText = "position:fixed;opacity:0;top:50%;left:50%";
+    document.body.appendChild(input);
+    const cleanup = () => {
+      try {
+        input.remove();
+      } catch {
+        /* */
+      }
+    };
+    input.addEventListener("change", (e) => {
+      setDate((e.target as HTMLInputElement).value);
+      cleanup();
+    });
+    input.addEventListener("blur", cleanup);
+    input.showPicker?.();
+    input.focus();
+  };
+
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="space-y-5"
-    >
-      {/* Type Toggle */}
-      <div className="flex gap-2 p-1 bg-secondary rounded-xl">
+    <div className="space-y-4 pb-2">
+      {/* Amount — large centered */}
+      <div className="flex items-center justify-center py-3">
+        <span className="text-2xl text-muted-foreground/50 mr-1">€</span>
+        <AmountInput
+          value={amount}
+          onChange={setAmount}
+          className="text-4xl font-bold text-center w-44"
+          autoFocus
+        />
+      </div>
+
+      {/* Type toggle — below amount */}
+      <div className="flex gap-1.5 p-1 bg-secondary/50 rounded-xl">
         {(["expense", "income"] as const).map((t) => (
           <button
             key={t}
@@ -111,320 +134,240 @@ export default function AddTransaction({ onSuccess }: AddTransactionProps) {
               setCategoryId("");
             }}
             className={cn(
-              "flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all",
+              "flex-1 py-2 rounded-lg text-xs font-semibold uppercase tracking-wider transition-all",
               type === t
                 ? t === "expense"
                   ? "bg-red-500/20 text-red-400"
                   : "bg-emerald-500/20 text-emerald-400"
-                : "text-muted-foreground hover:text-foreground",
+                : "text-muted-foreground",
             )}
           >
-            {t === "expense" ? (
-              <ArrowDownCircle className="w-4 h-4" />
-            ) : (
-              <ArrowUpCircle className="w-4 h-4" />
-            )}
             {t === "expense" ? "Expense" : "Income"}
           </button>
         ))}
       </div>
 
-      {/* Amount Input */}
-      <div className="text-center py-4">
-        <div className="flex items-center justify-center gap-1">
-          <span className="text-3xl text-muted-foreground">€</span>
-          <AmountInput
-            value={amount}
-            onChange={setAmount}
-            className="text-5xl font-bold text-center w-48"
-            autoFocus
-          />
+      {/* Category row — horizontal scroll, sorted by frequency */}
+      <div className="-mx-4">
+        <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2 px-4">
+          Category
+        </div>
+        <div className="flex gap-2 overflow-x-auto px-4 pb-1 scrollbar-none">
+          {filteredCategories.map((cat) => (
+            <button
+              key={cat._id}
+              onClick={() => setCategoryId(cat._id)}
+              className={cn(
+                "flex flex-col items-center gap-1 py-2 px-3 rounded-xl transition-all shrink-0",
+                categoryId === cat._id
+                  ? "ring-1.5 ring-primary bg-primary/10"
+                  : "bg-secondary/60",
+              )}
+            >
+              <span
+                className="w-9 h-9 rounded-lg flex items-center justify-center text-lg"
+                style={{ backgroundColor: cat.color + "20" }}
+              >
+                {cat.emoji}
+              </span>
+              <span className="text-[9px] font-medium text-muted-foreground whitespace-nowrap">
+                {cat.name}
+              </span>
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Category Selector */}
-      <div>
-        <button
-          onClick={() => setShowCategories(!showCategories)}
-          className="w-full flex items-center justify-between p-3 bg-secondary rounded-xl hover:bg-secondary/80 transition-colors"
-        >
-          <div className="flex items-center gap-3">
-            {selectedCategory ? (
-              <>
-                <span
-                  className="w-9 h-9 rounded-lg flex items-center justify-center text-lg"
-                  style={{ backgroundColor: selectedCategory.color + "20" }}
-                >
-                  {selectedCategory.emoji}
-                </span>
-                <div className="text-left">
-                  <div className="text-sm font-medium">
-                    {selectedCategory.name}
-                  </div>
-                  <div className="text-xs text-muted-foreground capitalize">
-                    {selectedCategory.budgetType}
-                  </div>
-                </div>
-              </>
-            ) : (
-              <span className="text-sm text-muted-foreground">
-                Select category
-              </span>
-            )}
-          </div>
-          <ChevronDown
-            className={cn(
-              "w-4 h-4 text-muted-foreground transition-transform",
-              showCategories && "rotate-180",
-            )}
-          />
-        </button>
-
-        <AnimatePresence>
-          {showCategories && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="overflow-hidden"
-            >
-              <div className="grid grid-cols-3 gap-2 mt-2">
-                {filteredCategories.map((cat) => (
-                  <motion.button
-                    key={cat._id}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => {
-                      setCategoryId(cat._id);
-                      setShowCategories(false);
-                    }}
-                    className={cn(
-                      "flex flex-col items-center gap-1.5 p-3 rounded-xl transition-all",
-                      categoryId === cat._id
-                        ? "ring-2 ring-primary bg-primary/10"
-                        : "bg-secondary hover:bg-secondary/80",
-                    )}
-                  >
-                    <span
-                      className="w-10 h-10 rounded-lg flex items-center justify-center text-xl"
-                      style={{ backgroundColor: cat.color + "20" }}
-                    >
-                      {cat.emoji}
-                    </span>
-                    <span className="text-[11px] font-medium truncate w-full text-center">
-                      {cat.name}
-                    </span>
-                  </motion.button>
-                ))}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-
-      {/* Income Type (only for income) */}
-      {type === "income" && (
-        <motion.div
-          initial={{ opacity: 0, height: 0 }}
-          animate={{ opacity: 1, height: "auto" }}
-          exit={{ opacity: 0, height: 0 }}
-          className="space-y-3"
-        >
-          <label className="text-sm font-medium text-muted-foreground">
-            Income Type
-          </label>
-          <div className="flex gap-2">
-            {(["bruto", "neto"] as const).map((it) => (
-              <button
-                key={it}
-                onClick={() => setIncomeType(it)}
-                className={cn(
-                  "flex-1 py-2.5 rounded-xl text-sm font-medium transition-all",
-                  incomeType === it
-                    ? "bg-primary/20 text-primary ring-1 ring-primary/50"
-                    : "bg-secondary text-muted-foreground",
-                )}
-              >
-                {it === "bruto" ? "Bruto (Self-employed)" : "Neto (After tax)"}
-              </button>
-            ))}
-          </div>
-
-          {/* Income Tags */}
-          <div>
-            <label className="text-sm font-medium text-muted-foreground">
-              Tags
-            </label>
-            <div className="flex flex-wrap gap-2 mt-1.5">
-              {availableTags.map((tag) => (
-                <button
-                  key={tag}
-                  onClick={() =>
-                    setTags((prev) =>
-                      prev.includes(tag)
-                        ? prev.filter((t) => t !== tag)
-                        : [...prev, tag],
-                    )
-                  }
-                  className={cn(
-                    "px-3 py-1.5 rounded-lg text-xs font-medium transition-all",
-                    tags.includes(tag)
-                      ? "bg-primary/20 text-primary ring-1 ring-primary/50"
-                      : "bg-secondary text-muted-foreground",
-                  )}
-                >
-                  {tag}
-                </button>
-              ))}
-            </div>
-          </div>
-        </motion.div>
-      )}
-
-      {/* Expense options: write-off & debt payment */}
-      {type === "expense" && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="space-y-2"
-        >
-          {/* Debt Payment Toggle */}
-          <div className="flex gap-2">
-            {(["", "tax", "credit"] as const).map((dp) => (
-              <button
-                key={dp}
-                type="button"
-                onClick={() => setDebtPayment(dp)}
-                className={cn(
-                  "flex-1 py-2 rounded-xl text-xs font-medium transition-all",
-                  debtPayment === dp
-                    ? dp === ""
-                      ? "bg-secondary ring-1 ring-primary/50 text-foreground"
-                      : dp === "tax"
-                        ? "bg-orange-500/20 text-orange-400 ring-1 ring-orange-500/30"
-                        : "bg-blue-500/20 text-blue-400 ring-1 ring-blue-500/30"
-                    : "bg-secondary text-muted-foreground",
-                )}
-              >
-                {dp === ""
-                  ? "Regular"
-                  : dp === "tax"
-                    ? "Tax Payment"
-                    : "Credit Payment"}
-              </button>
-            ))}
-          </div>
-
-          {/* Write-off checkbox */}
-          <button
-            type="button"
-            onClick={() => setIsWriteOff(!isWriteOff)}
-            className={cn(
-              "w-full flex items-center gap-3 p-3 rounded-xl transition-all",
-              isWriteOff
-                ? "bg-amber-500/10 ring-1 ring-amber-500/30"
-                : "bg-secondary",
-            )}
-          >
-            <div
-              className={cn(
-                "w-5 h-5 rounded border-2 flex items-center justify-center transition-all",
-                isWriteOff
-                  ? "bg-amber-500 border-amber-500"
-                  : "border-muted-foreground",
-              )}
-            >
-              {isWriteOff && <Check className="w-3 h-3 text-white" />}
-            </div>
-            <div className="flex items-center gap-2">
-              <FileText className="w-4 h-4 text-muted-foreground" />
-              <span className="text-sm">Write off (deductible expense)</span>
-            </div>
-          </button>
-        </motion.div>
-      )}
-
-      {/* Description */}
+      {/* Description — inline */}
       <input
         type="text"
         value={description}
         onChange={(e) => setDescription(e.target.value)}
-        placeholder="Description (optional)"
-        className="w-full p-3 bg-secondary rounded-xl text-sm outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-primary/50 transition-all"
+        placeholder="Add note..."
+        className="w-full px-3 py-2.5 bg-secondary/50 rounded-xl text-sm outline-none placeholder:text-muted-foreground/40 focus:ring-1 focus:ring-primary/30 transition-all"
       />
 
-      {/* Date */}
-      <div className="space-y-2">
-        <div className="flex gap-2">
-          {[
-            { label: "Today", offset: 0 },
-            { label: "Yesterday", offset: -1 },
-            { label: "2 days ago", offset: -2 },
-          ].map((d) => {
-            const dt = new Date();
-            dt.setDate(dt.getDate() + d.offset);
-            const val = dt.toISOString().split("T")[0];
-            return (
-              <button
-                key={d.label}
-                type="button"
-                onClick={() => setDate(val)}
-                className={cn(
-                  "flex-1 py-2 rounded-xl text-xs font-medium transition-all",
-                  date === val
-                    ? "bg-primary/20 text-primary ring-1 ring-primary/50"
-                    : "bg-secondary text-muted-foreground",
-                )}
-              >
-                {d.label}
-              </button>
-            );
-          })}
-        </div>
+      {/* Date — quick picks + calendar */}
+      <div className="flex gap-1.5">
+        {dateShortcuts.map((d) => {
+          const dt = new Date();
+          dt.setDate(dt.getDate() + d.offset);
+          const val = dt.toISOString().split("T")[0];
+          return (
+            <button
+              key={d.label}
+              type="button"
+              onClick={() => setDate(val)}
+              className={cn(
+                "flex-1 py-2 rounded-xl text-[10px] font-semibold uppercase tracking-wider transition-all",
+                date === val
+                  ? "bg-primary/15 text-primary ring-1 ring-primary/30"
+                  : "bg-secondary/50 text-muted-foreground",
+              )}
+            >
+              {d.label}
+            </button>
+          );
+        })}
         <button
           type="button"
-          onClick={() => {
-            const input = document.createElement("input");
-            input.type = "date";
-            input.value = date;
-            input.style.position = "fixed";
-            input.style.opacity = "0";
-            input.style.top = "50%";
-            input.style.left = "50%";
-            document.body.appendChild(input);
-            const cleanup = () => {
-              try {
-                input.remove();
-              } catch {
-                /* already removed */
-              }
-            };
-            input.addEventListener("change", (e) => {
-              setDate((e.target as HTMLInputElement).value);
-              cleanup();
-            });
-            input.addEventListener("blur", cleanup);
-            input.showPicker?.();
-            input.focus();
-          }}
-          className="w-full p-3 bg-secondary rounded-xl text-sm text-left text-muted-foreground hover:bg-secondary/80 transition-colors"
+          onClick={openDatePicker}
+          className={cn(
+            "px-3 py-2 rounded-xl transition-all flex items-center gap-1.5",
+            !dateShortcuts.some((d) => {
+              const dt = new Date();
+              dt.setDate(dt.getDate() + d.offset);
+              return dt.toISOString().split("T")[0] === date;
+            })
+              ? "bg-primary/15 text-primary ring-1 ring-primary/30"
+              : "bg-secondary/50 text-muted-foreground",
+          )}
         >
-          {new Date(date + "T12:00:00").toLocaleDateString("en-GB", {
-            weekday: "short",
-            day: "numeric",
-            month: "short",
-            year: "numeric",
-          })}
+          <Calendar className="w-3.5 h-3.5" />
+          <span className="text-[10px] font-semibold uppercase tracking-wider">
+            {!dateShortcuts.some((d) => {
+              const dt = new Date();
+              dt.setDate(dt.getDate() + d.offset);
+              return dt.toISOString().split("T")[0] === date;
+            })
+              ? new Date(date + "T12:00:00").toLocaleDateString("en-GB", {
+                  day: "numeric",
+                  month: "short",
+                })
+              : "Pick"}
+          </span>
         </button>
       </div>
 
-      {/* Submit Button */}
+      {/* Expense options — compact row */}
+      <AnimatePresence mode="wait">
+        {type === "expense" && (
+          <motion.div
+            key="expense-opts"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="space-y-1.5 overflow-hidden"
+          >
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
+              Payment type
+            </div>
+            <div className="flex gap-1.5">
+              {(["", "tax", "credit"] as const).map((dp) => (
+                <button
+                  key={dp}
+                  type="button"
+                  onClick={() => setDebtPayment(dp)}
+                  className={cn(
+                    "flex-1 py-2 rounded-xl text-[10px] font-semibold uppercase tracking-wider transition-all",
+                    debtPayment === dp
+                      ? dp === ""
+                        ? "bg-secondary ring-1 ring-primary/30 text-foreground"
+                        : dp === "tax"
+                          ? "bg-orange-500/20 text-orange-400 ring-1 ring-orange-500/30"
+                          : "bg-blue-500/20 text-blue-400 ring-1 ring-blue-500/30"
+                      : "bg-secondary/50 text-muted-foreground",
+                  )}
+                >
+                  {dp === "" ? "Regular" : dp === "tax" ? "Tax" : "Credit"}
+                </button>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setIsWriteOff(!isWriteOff)}
+              className={cn(
+                "w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl transition-all text-xs",
+                isWriteOff
+                  ? "bg-amber-500/10 ring-1 ring-amber-500/30 text-amber-400"
+                  : "bg-secondary/50 text-muted-foreground",
+              )}
+            >
+              <div
+                className={cn(
+                  "w-4 h-4 rounded border-[1.5px] flex items-center justify-center transition-all shrink-0",
+                  isWriteOff
+                    ? "bg-amber-500 border-amber-500"
+                    : "border-muted-foreground/40",
+                )}
+              >
+                {isWriteOff && <Check className="w-2.5 h-2.5 text-white" />}
+              </div>
+              <FileText className="w-3.5 h-3.5 shrink-0" />
+              <span>Write-off</span>
+            </button>
+          </motion.div>
+        )}
+
+        {type === "income" && (
+          <motion.div
+            key="income-opts"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="space-y-1.5 overflow-hidden"
+          >
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
+              Income type
+            </div>
+            <div className="flex gap-1.5">
+              {(["bruto", "neto"] as const).map((it) => (
+                <button
+                  key={it}
+                  onClick={() => setIncomeType(it)}
+                  className={cn(
+                    "flex-1 py-2 rounded-xl text-[10px] font-semibold uppercase tracking-wider transition-all",
+                    incomeType === it
+                      ? "bg-primary/15 text-primary ring-1 ring-primary/30"
+                      : "bg-secondary/50 text-muted-foreground",
+                  )}
+                >
+                  {it === "bruto" ? "Bruto" : "Neto"}
+                </button>
+              ))}
+            </div>
+
+            {availableTags.length > 0 && (
+              <>
+                <div className="text-[10px] text-muted-foreground uppercase tracking-wider pt-1">
+                  Tags
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {availableTags.map((tag) => (
+                    <button
+                      key={tag}
+                      onClick={() =>
+                        setTags((prev) =>
+                          prev.includes(tag)
+                            ? prev.filter((t) => t !== tag)
+                            : [...prev, tag],
+                        )
+                      }
+                      className={cn(
+                        "px-2.5 py-1.5 rounded-lg text-[10px] font-semibold uppercase tracking-wider transition-all",
+                        tags.includes(tag)
+                          ? "bg-primary/15 text-primary ring-1 ring-primary/30"
+                          : "bg-secondary/50 text-muted-foreground",
+                      )}
+                    >
+                      {tag}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Submit */}
       <motion.button
         whileTap={{ scale: 0.98 }}
         onClick={handleSubmit}
         disabled={!amount || !categoryId || saving}
         className={cn(
-          "w-full py-3.5 rounded-xl font-semibold text-sm transition-all",
+          "w-full py-3 rounded-xl font-semibold text-sm transition-all",
           saved
             ? "bg-emerald-500 text-white"
             : !amount || !categoryId
@@ -454,6 +397,6 @@ export default function AddTransaction({ onSuccess }: AddTransactionProps) {
           )}
         </AnimatePresence>
       </motion.button>
-    </motion.div>
+    </div>
   );
 }

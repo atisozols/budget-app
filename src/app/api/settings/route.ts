@@ -52,13 +52,27 @@ export async function PUT(request: NextRequest) {
     const body = await request.json();
     let settings = await Settings.findOne();
 
-    // Auto-set balanceDate when currentBalance changes
+    // Auto-set dates when calibration values change
     if (
       body.currentBalance !== undefined &&
       settings &&
       body.currentBalance !== settings.currentBalance
     ) {
       body.balanceDate = new Date();
+    }
+    if (
+      body.taxDebt !== undefined &&
+      settings &&
+      body.taxDebt !== settings.taxDebt
+    ) {
+      body.taxDebtDate = new Date();
+    }
+    if (
+      body.creditDebt !== undefined &&
+      settings &&
+      body.creditDebt !== settings.creditDebt
+    ) {
+      body.creditDebtDate = new Date();
     }
 
     if (settings) {

@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useMonth } from "@/lib/MonthContext";
 
-const MONTH_PAGES = ["/", "/dashboard", "/recurring", "/history"];
+const MONTH_PAGES = ["/recurring", "/history"];
 
 export default function MonthSwitcher() {
   const { isCurrentMonth, goMonth, goToNow, label } = useMonth();

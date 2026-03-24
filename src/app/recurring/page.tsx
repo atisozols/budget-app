@@ -1,17 +1,13 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Plus, Trash2, Repeat, Check, Calendar, FileText } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
-import {
-  CategoryType,
-  RecurringPaymentType,
-  TransactionType,
-  BudgetType,
-} from "@/lib/types";
+import { TransactionType, RecurringPaymentType, BudgetType } from "@/lib/types";
 import AmountInput from "@/components/AmountInput";
 import { useMonth } from "@/lib/MonthContext";
+import { useAppData } from "@/lib/AppDataContext";
 
 const MONTH_NAMES = [
   "January",
@@ -29,11 +25,15 @@ const MONTH_NAMES = [
 ];
 
 export default function RecurringPage() {
-  const [payments, setPayments] = useState<RecurringPaymentType[]>([]);
-  const [categories, setCategories] = useState<CategoryType[]>([]);
-  const [monthTransactions, setMonthTransactions] = useState<TransactionType[]>(
-    [],
-  );
+  const { month, year, isCurrentMonth } = useMonth();
+  const {
+    recurring: payments,
+    categories,
+    transactions: allTxs,
+    refetchRecurring,
+    refetchTransactions,
+  } = useAppData();
+
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
@@ -44,27 +44,14 @@ export default function RecurringPage() {
   const [editing, setEditing] = useState<string | null>(null);
   const [editAmount, setEditAmount] = useState("");
 
-  const { month, year, isCurrentMonth } = useMonth();
-
-  const fetchData = useCallback(() => {
-    Promise.all([
-      fetch("/api/recurring").then((r) => r.json()),
-      fetch("/api/categories").then((r) => r.json()),
-      fetch(`/api/transactions?month=${month}&year=${year}`).then((r) =>
-        r.json(),
-      ),
-    ])
-      .then(([r, c, t]) => {
-        setPayments(r);
-        setCategories(c);
-        setMonthTransactions(t);
-      })
-      .catch(console.error);
-  }, [month, year]);
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  const monthTransactions = useMemo(
+    () =>
+      allTxs.filter((t) => {
+        const d = new Date(t.date);
+        return d.getMonth() + 1 === month && d.getFullYear() === year;
+      }),
+    [allTxs, month, year],
+  );
 
   const expenseCategories = categories.filter((c) => c.type === "expense");
 
@@ -103,8 +90,7 @@ export default function RecurringPage() {
         }),
       });
       if (res.ok) {
-        const payment = await res.json();
-        setPayments((prev) => [...prev, payment]);
+        await refetchRecurring();
         setName("");
         setAmount("");
         setCategoryId("");
@@ -135,7 +121,7 @@ export default function RecurringPage() {
       if (res.ok) {
         setEditing(null);
         setEditAmount("");
-        fetchData();
+        await Promise.all([refetchRecurring(), refetchTransactions()]);
       } else {
         const err = await res.json();
         console.error(err.error);
@@ -151,9 +137,7 @@ export default function RecurringPage() {
     try {
       const res = await fetch(`/api/recurring/${id}`, { method: "DELETE" });
       if (res.ok) {
-        setPayments((prev) =>
-          prev.map((p) => (p._id === id ? { ...p, isActive: false } : p)),
-        );
+        await refetchRecurring();
       }
     } catch (error) {
       console.error("Failed to delete:", error);
