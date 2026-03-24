@@ -52,11 +52,21 @@ export async function PUT(request: NextRequest) {
     const body = await request.json();
     let settings = await Settings.findOne();
 
+    // Auto-set balanceDate when currentBalance changes
+    if (
+      body.currentBalance !== undefined &&
+      settings &&
+      body.currentBalance !== settings.currentBalance
+    ) {
+      body.balanceDate = new Date();
+    }
+
     if (settings) {
       settings = await Settings.findByIdAndUpdate(settings._id, body, {
         new: true,
       }).lean();
     } else {
+      body.balanceDate = body.balanceDate || new Date();
       settings = await Settings.create(body);
     }
 

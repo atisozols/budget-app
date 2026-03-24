@@ -3,6 +3,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Navigation from "@/components/Navigation";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
+import MonthSwitcher from "@/components/MonthSwitcher";
+import { MonthProvider } from "@/lib/MonthContext";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -48,16 +50,19 @@ export default function RootLayout({
         className="flex flex-col bg-background text-foreground"
         style={{ minHeight: "100dvh" }}
       >
-        <ServiceWorkerRegister />
-        <main
-          className="flex-1 max-w-lg mx-auto w-full px-4 pb-28"
-          style={{
-            paddingTop: "calc(env(safe-area-inset-top, 0px) + 0.75rem)",
-          }}
-        >
-          {children}
-        </main>
-        <Navigation />
+        <MonthProvider>
+          <ServiceWorkerRegister />
+          <div
+            className="max-w-lg mx-auto w-full px-4"
+            style={{
+              paddingTop: "calc(env(safe-area-inset-top, 0px) + 0.75rem)",
+            }}
+          >
+            <MonthSwitcher />
+            <main className="flex-1 pb-28">{children}</main>
+          </div>
+          <Navigation />
+        </MonthProvider>
       </body>
     </html>
   );

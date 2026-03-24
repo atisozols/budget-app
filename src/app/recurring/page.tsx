@@ -2,16 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  Plus,
-  Trash2,
-  Repeat,
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  Calendar,
-  FileText,
-} from "lucide-react";
+import { Plus, Trash2, Repeat, Check, Calendar, FileText } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 import {
   CategoryType,
@@ -20,6 +11,7 @@ import {
   BudgetType,
 } from "@/lib/types";
 import AmountInput from "@/components/AmountInput";
+import { useMonth } from "@/lib/MonthContext";
 
 const MONTH_NAMES = [
   "January",
@@ -52,25 +44,7 @@ export default function RecurringPage() {
   const [editing, setEditing] = useState<string | null>(null);
   const [editAmount, setEditAmount] = useState("");
 
-  const [month, setMonth] = useState(new Date().getMonth() + 1);
-  const [year, setYear] = useState(new Date().getFullYear());
-
-  const isCurrentMonth =
-    month === new Date().getMonth() + 1 && year === new Date().getFullYear();
-
-  const goMonth = (dir: -1 | 1) => {
-    setMonth((m) => {
-      let newM = m + dir;
-      if (newM < 1) {
-        setYear((y) => y - 1);
-        newM = 12;
-      } else if (newM > 12) {
-        setYear((y) => y + 1);
-        newM = 1;
-      }
-      return newM;
-    });
-  };
+  const { month, year, isCurrentMonth } = useMonth();
 
   const fetchData = useCallback(() => {
     Promise.all([
@@ -215,37 +189,6 @@ export default function RecurringPage() {
           className="p-2 bg-primary/20 text-primary rounded-xl hover:bg-primary/30 transition-colors"
         >
           <Plus className="w-5 h-5" />
-        </button>
-      </div>
-
-      {/* Month Navigator */}
-      <div className="flex items-center justify-between">
-        <button
-          onClick={() => goMonth(-1)}
-          className="p-2 rounded-xl bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ChevronLeft className="w-4 h-4" />
-        </button>
-        <button
-          onClick={() => {
-            setMonth(new Date().getMonth() + 1);
-            setYear(new Date().getFullYear());
-          }}
-          className="text-sm font-semibold"
-        >
-          {MONTH_NAMES[month - 1]} {year}
-          {isCurrentMonth && (
-            <span className="ml-1.5 text-[10px] text-muted-foreground font-normal">
-              (now)
-            </span>
-          )}
-        </button>
-        <button
-          onClick={() => goMonth(1)}
-          disabled={isCurrentMonth}
-          className="p-2 rounded-xl bg-secondary text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30"
-        >
-          <ChevronRight className="w-4 h-4" />
         </button>
       </div>
 

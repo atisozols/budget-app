@@ -9,7 +9,7 @@ import {
   Repeat,
   Calculator,
   Settings,
-  Tag,
+  Clock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -18,7 +18,7 @@ const navItems = [
   { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
   { href: "/recurring", icon: Repeat, label: "Recurring" },
   { href: "/taxes", icon: Calculator, label: "Taxes" },
-  { href: "/categories", icon: Tag, label: "Categories" },
+  { href: "/history", icon: Clock, label: "History" },
   { href: "/settings", icon: Settings, label: "Settings" },
 ];
 

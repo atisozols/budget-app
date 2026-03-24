@@ -2,6 +2,7 @@ import mongoose, { Schema, Document } from "mongoose";
 
 export interface ISettings extends Document {
   currentBalance: number;
+  balanceDate: Date;
   taxDebt: number;
   creditDebt: number;
   incomeTags: string[];
@@ -14,6 +15,7 @@ export interface ISettings extends Document {
 const SettingsSchema = new Schema<ISettings>(
   {
     currentBalance: { type: Number, default: 0 },
+    balanceDate: { type: Date, default: Date.now },
     taxDebt: { type: Number, default: 0 },
     creditDebt: { type: Number, default: 0 },
     incomeTags: [{ type: String }],

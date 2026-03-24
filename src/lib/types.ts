@@ -38,6 +38,7 @@ export interface RecurringPaymentType {
 export interface SettingsType {
   _id: string;
   currentBalance: number;
+  balanceDate: string;
   taxDebt: number;
   creditDebt: number;
   incomeTags: string[];
