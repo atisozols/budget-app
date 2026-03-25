@@ -2,18 +2,25 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectToDatabase } from "@/lib/mongodb";
 import RecurringPayment from "@/lib/models/RecurringPayment";
 import Transaction from "@/lib/models/Transaction";
-import "@/lib/models/Category";
+import { getUserId } from "@/lib/auth";
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    const userId = await getUserId();
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     await connectToDatabase();
     const { id } = await params;
     const { date, amount: customAmount } = await request.json();
 
-    const payment = await RecurringPayment.findById(id).populate("categoryId");
+    const payment = await RecurringPayment.findOne({ _id: id, userId }).populate(
+      "categoryId",
+    );
     if (!payment) {
       return NextResponse.json(
         { error: "Recurring payment not found" },
@@ -34,6 +41,7 @@ export async function POST(
     );
 
     const existing = await Transaction.findOne({
+      userId,
       recurringPaymentId: id,
       date: { $gte: monthStart, $lte: monthEnd },
     });
@@ -46,6 +54,7 @@ export async function POST(
     }
 
     const transaction = await Transaction.create({
+      userId,
       amount: customAmount != null ? customAmount : payment.amount,
       type: "expense",
       categoryId: payment.categoryId._id,

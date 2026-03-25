@@ -1,6 +1,7 @@
 import mongoose, { Schema, Document } from "mongoose";
 
 export interface IRecurringPayment extends Document {
+  userId: mongoose.Types.ObjectId;
   name: string;
   amount: number;
   categoryId: mongoose.Types.ObjectId;
@@ -13,6 +14,12 @@ export interface IRecurringPayment extends Document {
 }
 
 const RecurringPaymentSchema = new Schema<IRecurringPayment>({
+  userId: {
+    type: Schema.Types.ObjectId,
+    ref: "User",
+    required: true,
+    index: true,
+  },
   name: { type: String, required: true },
   amount: { type: Number, required: true },
   categoryId: { type: Schema.Types.ObjectId, ref: "Category", required: true },
@@ -31,6 +38,8 @@ const RecurringPaymentSchema = new Schema<IRecurringPayment>({
   },
   createdAt: { type: Date, default: Date.now },
 });
+
+RecurringPaymentSchema.index({ userId: 1, dueDay: 1, isActive: 1 });
 
 export default mongoose.models.RecurringPayment ||
   mongoose.model<IRecurringPayment>("RecurringPayment", RecurringPaymentSchema);

@@ -1,6 +1,7 @@
 import mongoose, { Schema, Document } from "mongoose";
 
 export interface ISettings extends Document {
+  userId: mongoose.Types.ObjectId;
   currentBalance: number;
   balanceDate: Date;
   taxDebt: number;
@@ -16,6 +17,13 @@ export interface ISettings extends Document {
 
 const SettingsSchema = new Schema<ISettings>(
   {
+    userId: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      unique: true,
+      index: true,
+    },
     currentBalance: { type: Number, default: 0 },
     balanceDate: { type: Date, default: Date.now },
     taxDebt: { type: Number, default: 0 },
@@ -28,6 +36,8 @@ const SettingsSchema = new Schema<ISettings>(
   },
   { timestamps: true },
 );
+
+SettingsSchema.index({ userId: 1 }, { unique: true });
 
 export default mongoose.models.Settings ||
   mongoose.model<ISettings>("Settings", SettingsSchema);

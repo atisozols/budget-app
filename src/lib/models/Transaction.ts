@@ -1,6 +1,7 @@
 import mongoose, { Schema, Document } from "mongoose";
 
 export interface ITransaction extends Document {
+  userId: mongoose.Types.ObjectId;
   amount: number;
   type: "expense" | "income";
   categoryId: mongoose.Types.ObjectId;
@@ -15,6 +16,12 @@ export interface ITransaction extends Document {
 }
 
 const TransactionSchema = new Schema<ITransaction>({
+  userId: {
+    type: Schema.Types.ObjectId,
+    ref: "User",
+    required: true,
+    index: true,
+  },
   amount: { type: Number, required: true },
   type: { type: String, enum: ["expense", "income"], required: true },
   categoryId: { type: Schema.Types.ObjectId, ref: "Category", required: true },
@@ -28,8 +35,8 @@ const TransactionSchema = new Schema<ITransaction>({
   createdAt: { type: Date, default: Date.now },
 });
 
-TransactionSchema.index({ date: -1 });
-TransactionSchema.index({ type: 1, date: -1 });
+TransactionSchema.index({ userId: 1, date: -1 });
+TransactionSchema.index({ userId: 1, type: 1, date: -1 });
 
 export default mongoose.models.Transaction ||
   mongoose.model<ITransaction>("Transaction", TransactionSchema);

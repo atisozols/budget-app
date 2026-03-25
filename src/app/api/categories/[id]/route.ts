@@ -1,16 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectToDatabase } from "@/lib/mongodb";
 import Category from "@/lib/models/Category";
+import { getUserId } from "@/lib/auth";
 
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const userId = await getUserId();
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     await connectToDatabase();
     const { id } = await params;
-    const body = await request.json();
-    const category = await Category.findByIdAndUpdate(id, body, {
+    const body = { ...(await request.json()) } as Record<string, unknown>;
+    delete body._id;
+    delete body.userId;
+    const category = await Category.findOneAndUpdate({ _id: id, userId }, body, {
       new: true,
     }).lean();
 
@@ -36,9 +44,14 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const userId = await getUserId();
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     await connectToDatabase();
     const { id } = await params;
-    const category = await Category.findByIdAndDelete(id);
+    const category = await Category.findOneAndDelete({ _id: id, userId });
 
     if (!category) {
       return NextResponse.json(
