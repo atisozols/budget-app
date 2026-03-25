@@ -29,6 +29,7 @@ import { useAppData } from "@/lib/AppDataContext";
 import { format } from "date-fns";
 import ActivityGrid from "@/components/ActivityGrid";
 import BudgetDonut from "@/components/BudgetDonut";
+import SpendStreakCard from "@/components/SpendStreakCard";
 
 const NUM_BARS = 14;
 const MONTH_SHORT = [
@@ -46,17 +47,16 @@ const MONTH_SHORT = [
   "Dec",
 ];
 
+function toLocalDateKey(d: Date) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 export default function Home() {
   const { transactions, settings, year } = useAppData();
   const [selectedBarIdx, setSelectedBarIdx] = useState<number | null>(null);
-
-  // ─── Helper: local YYYY-MM-DD key (avoids UTC shift) ────────────
-  const localDateKey = (d: Date) => {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
-  };
 
   // ─── Derived balance from calibration ─────────────────────────────
   const calibratedBalance = settings?.currentBalance || 0;
@@ -154,11 +154,11 @@ export default function Home() {
     for (let i = NUM_BARS - 1; i >= 0; i--) {
       const d = new Date(today);
       d.setDate(d.getDate() - i);
-      const key = localDateKey(d);
+      const key = toLocalDateKey(d);
       const dayTxs = transactions.filter((t) => {
         const txD = new Date(t.date);
         return (
-          localDateKey(txD) === key &&
+          toLocalDateKey(txD) === key &&
           t.type === "expense" &&
           !t.recurringPaymentId
         );
@@ -177,6 +177,64 @@ export default function Home() {
   }, [transactions]);
 
   const maxSpend = Math.max(...dailyBars.map((b) => b.spend), 1);
+
+  const { todaySpend, currentSpendStreak, bestSpendStreak, targetSpend } =
+    useMemo(() => {
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const jan1 = new Date(year, 0, 1);
+      const endDate =
+        year === now.getFullYear() ? today : new Date(year, 11, 31);
+
+      const dailySpend = new Map<string, number>();
+      for (const transaction of transactions) {
+        if (transaction.type !== "expense" || transaction.recurringPaymentId) {
+          continue;
+        }
+
+        const date = new Date(transaction.date);
+        const key = toLocalDateKey(date);
+        dailySpend.set(key, (dailySpend.get(key) || 0) + transaction.amount);
+      }
+
+      let totalSpend = 0;
+      let dayCount = 0;
+      let streak = 0;
+      let maxStreak = 0;
+      let spendToday = 0;
+
+      const cursor = new Date(jan1);
+      while (cursor <= endDate) {
+        const key = toLocalDateKey(cursor);
+        const spend = dailySpend.get(key) || 0;
+        const avg = dayCount > 0 ? totalSpend / dayCount : 0;
+        const isGood = dayCount > 0 && spend < avg;
+
+        if (isGood) {
+          streak++;
+          if (streak > maxStreak) {
+            maxStreak = streak;
+          }
+        } else {
+          streak = 0;
+        }
+
+        if (cursor.getTime() === today.getTime()) {
+          spendToday = spend;
+        }
+
+        totalSpend += spend;
+        dayCount++;
+        cursor.setDate(cursor.getDate() + 1);
+      }
+
+      return {
+        todaySpend: spendToday,
+        currentSpendStreak: streak,
+        bestSpendStreak: maxStreak,
+        targetSpend: dayCount > 0 ? totalSpend / dayCount : 0,
+      };
+    }, [transactions, year]);
 
   // ─── Rolling 7-day comparison ──────────────────────────────────────
   const { last7Spend, prev7Spend, pctChange7 } = useMemo(() => {
@@ -370,12 +428,22 @@ export default function Home() {
         </div>
       </motion.div>
 
-      {/* 2. GitHub-style Activity Grid */}
+      {/* 2. Daily Spend Target + Streaks */}
+      <motion.div variants={itemVariants}>
+        <SpendStreakCard
+          todaySpend={todaySpend}
+          targetSpend={targetSpend}
+          currentStreak={currentSpendStreak}
+          bestStreak={bestSpendStreak}
+        />
+      </motion.div>
+
+      {/* 3. GitHub-style Activity Grid */}
       <motion.div variants={itemVariants}>
         <ActivityGrid transactions={transactions} year={year} />
       </motion.div>
 
-      {/* 3. Non-recurring Spend Bars */}
+      {/* 4. Non-recurring Spend Bars */}
       <motion.div variants={itemVariants} className="p-4 bg-card rounded-2xl">
         <div className="flex items-start justify-between mb-1">
           <div>
@@ -516,7 +584,7 @@ export default function Home() {
         </AnimatePresence>
       </motion.div>
 
-      {/* 4. Month Income / Expenses / Balance */}
+      {/* 5. Month Income / Expenses / Balance */}
       <motion.div
         variants={itemVariants}
         className="flex items-center justify-between p-3 bg-card rounded-xl"
@@ -551,7 +619,7 @@ export default function Home() {
         </div>
       </motion.div>
 
-      {/* 5. Yearly Balance Chart */}
+      {/* 6. Yearly Balance Chart */}
       {balanceLineData.length > 1 && (
         <motion.div variants={itemVariants} className="p-4 bg-card rounded-2xl">
           <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-3">
@@ -597,7 +665,7 @@ export default function Home() {
         </motion.div>
       )}
 
-      {/* 6. Monthly Income vs Expenses */}
+      {/* 7. Monthly Income vs Expenses */}
       {monthlyData.length > 0 && (
         <motion.div variants={itemVariants} className="p-4 bg-card rounded-2xl">
           <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-3">

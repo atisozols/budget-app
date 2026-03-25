@@ -2,7 +2,6 @@
 
 import { useMemo, useState, useRef, useEffect } from "react";
 import { TransactionType } from "@/lib/types";
-import { formatCurrency } from "@/lib/utils";
 
 const CELL = 7;
 const GAP = 3;
@@ -41,8 +40,7 @@ export default function ActivityGrid({
     return () => ro.disconnect();
   }, []);
 
-  const { longestStreak, currentStreak, currentAvg, realCells } =
-    useMemo(() => {
+  const realCells = useMemo(() => {
       const now = new Date();
       const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const jan1 = new Date(year, 0, 1);
@@ -61,7 +59,6 @@ export default function ActivityGrid({
       const cells: CellData[] = [];
       let totalSpend = 0;
       let dayCount = 0;
-      let goodDays = 0;
       let streak = 0;
       let maxStreak = 0;
 
@@ -76,7 +73,6 @@ export default function ActivityGrid({
         cells.push({ isGood, isToday, spend, avg });
 
         if (isGood) {
-          goodDays++;
           streak++;
           if (streak > maxStreak) maxStreak = streak;
         } else {
@@ -88,12 +84,7 @@ export default function ActivityGrid({
         d.setDate(d.getDate() + 1);
       }
 
-      return {
-        realCells: cells,
-        longestStreak: maxStreak,
-        currentStreak: streak,
-        currentAvg: dayCount > 0 ? totalSpend / dayCount : 0,
-      };
+      return cells;
     }, [transactions, year]);
 
   // Build grid: fill real cells, pad with nulls to fill numCols * 7, slice to fit
@@ -114,32 +105,10 @@ export default function ActivityGrid({
 
   return (
     <div className="p-4 bg-card rounded-2xl">
-      <div className="flex items-center justify-between mb-1">
+      <div className="mb-3">
         <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
           Below-average spend days
         </div>
-        <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
-          <span>
-            <span className="font-semibold text-emerald-400">
-              {currentStreak}
-            </span>{" "}
-            current
-          </span>
-          <span>
-            <span className="font-semibold text-amber-400">
-              {longestStreak}
-            </span>{" "}
-            record
-          </span>
-        </div>
-      </div>
-
-      <div className="text-[10px] text-muted-foreground/70 mb-3">
-        Daily avg:{" "}
-        <span className="font-semibold text-foreground/80">
-          {formatCurrency(currentAvg)}
-        </span>
-        <span className="ml-1">— spend less to keep streak</span>
       </div>
 
       {/* Grid: fills full width */}

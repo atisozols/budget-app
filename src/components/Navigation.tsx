@@ -17,10 +17,11 @@ const navItems = [
 
 export default function Navigation() {
   const pathname = usePathname();
+  const showFloatingAdd = pathname !== "/settings";
 
   return (
     <>
-      <FloatingAdd />
+      {showFloatingAdd ? <FloatingAdd /> : null}
       <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card/80 backdrop-blur-xl border-t border-border pb-[env(safe-area-inset-bottom)]">
         <div className="max-w-lg mx-auto grid grid-cols-5 px-1 py-1">
           {navItems.map((item) => {
