@@ -51,7 +51,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
 
   const fetchSettings = useCallback(async () => {
     try {
-      const res = await fetch("/api/settings");
+      const res = await fetch("/api/settings", { cache: "no-store" });
       const data = await res.json();
       setSettings(data);
     } catch (e) {

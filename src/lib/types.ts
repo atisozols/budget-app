@@ -1,3 +1,5 @@
+import type { HomeCardPreference } from "@/lib/homeCards";
+
 export interface CategoryType {
   _id: string;
   name: string;
@@ -46,6 +48,7 @@ export interface SettingsType {
   incomeTags: string[];
   vsaoiRate: number;
   iinRate: number;
+  homeCards: HomeCardPreference[];
 }
 
 export type BudgetType = "needs" | "wants" | "savings";

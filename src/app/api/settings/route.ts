@@ -3,6 +3,11 @@ import mongoose from "mongoose";
 import { connectToDatabase } from "@/lib/mongodb";
 import Settings from "@/lib/models/Settings";
 import { getUserId } from "@/lib/auth";
+import { DEFAULT_HOME_CARDS, normalizeHomeCards } from "@/lib/homeCards";
+
+const NO_STORE_HEADERS = {
+  "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+};
 
 export async function GET() {
   try {
@@ -12,19 +17,28 @@ export async function GET() {
     }
 
     await connectToDatabase();
-    let settings = await Settings.findOne({ userId }).lean();
+    const objectUserId = new mongoose.Types.ObjectId(userId);
+    const settingsCollection = Settings.collection;
+    let settings = await settingsCollection.findOne({ userId: objectUserId });
 
     if (!settings) {
-      settings = await Settings.create({
-        userId,
+      const now = new Date();
+      const { insertedId } = await settingsCollection.insertOne({
+        userId: objectUserId,
         currentBalance: 0,
+        balanceDate: now,
         taxDebt: 0,
+        taxDebtDate: now,
         creditDebt: 0,
+        creditDebtDate: now,
         incomeTags: ["Freelance", "Salary", "Contract", "Other"],
         vsaoiRate: 31.07,
         iinRate: 25.5,
+        homeCards: DEFAULT_HOME_CARDS,
+        createdAt: now,
+        updatedAt: now,
       });
-      settings = await Settings.findById(settings._id).lean();
+      settings = await settingsCollection.findOne({ _id: insertedId });
     }
 
     // Migrate old field name if it exists
@@ -43,12 +57,21 @@ export async function GET() {
       delete doc.initialBalance;
     }
 
-    return NextResponse.json(settings);
+    const normalizedHomeCards = normalizeHomeCards(doc.homeCards);
+    if (JSON.stringify(doc.homeCards ?? []) !== JSON.stringify(normalizedHomeCards)) {
+      await Settings.collection.updateOne(
+        { _id: new mongoose.Types.ObjectId(String(doc._id)) },
+        { $set: { homeCards: normalizedHomeCards } },
+      );
+      doc.homeCards = normalizedHomeCards;
+    }
+
+    return NextResponse.json(settings, { headers: NO_STORE_HEADERS });
   } catch (error) {
     console.error("GET /api/settings error:", error);
     return NextResponse.json(
       { error: "Failed to fetch settings" },
-      { status: 500 },
+      { status: 500, headers: NO_STORE_HEADERS },
     );
   }
 }
@@ -61,10 +84,15 @@ export async function PUT(request: NextRequest) {
     }
 
     await connectToDatabase();
+    const objectUserId = new mongoose.Types.ObjectId(userId);
+    const settingsCollection = Settings.collection;
     const body = { ...(await request.json()) } as Record<string, unknown>;
     delete body._id;
     delete body.userId;
-    let settings = await Settings.findOne({ userId });
+    if (body.homeCards !== undefined) {
+      body.homeCards = normalizeHomeCards(body.homeCards);
+    }
+    const settings = await settingsCollection.findOne({ userId: objectUserId });
 
     // Auto-set dates when calibration values change
     if (
@@ -89,21 +117,33 @@ export async function PUT(request: NextRequest) {
       body.creditDebtDate = new Date();
     }
 
+    const now = new Date();
+    body.updatedAt = now;
+
     if (settings) {
-      settings = await Settings.findOneAndUpdate({ _id: settings._id, userId }, body, {
-        new: true,
-      }).lean();
+      await settingsCollection.updateOne(
+        { _id: settings._id, userId: objectUserId },
+        { $set: body },
+      );
     } else {
       body.balanceDate = body.balanceDate || new Date();
-      settings = await Settings.create({ ...body, userId });
+      body.taxDebtDate = body.taxDebtDate || new Date();
+      body.creditDebtDate = body.creditDebtDate || new Date();
+      body.homeCards = normalizeHomeCards(body.homeCards);
+      await settingsCollection.insertOne({
+        ...body,
+        userId: objectUserId,
+        createdAt: now,
+      });
     }
 
-    return NextResponse.json(settings);
+    const updatedSettings = await settingsCollection.findOne({ userId: objectUserId });
+    return NextResponse.json(updatedSettings, { headers: NO_STORE_HEADERS });
   } catch (error) {
     console.error("PUT /api/settings error:", error);
     return NextResponse.json(
       { error: "Failed to update settings" },
-      { status: 500 },
+      { status: 500, headers: NO_STORE_HEADERS },
     );
   }
 }

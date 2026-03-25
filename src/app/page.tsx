@@ -30,6 +30,7 @@ import { format } from "date-fns";
 import ActivityGrid from "@/components/ActivityGrid";
 import BudgetDonut from "@/components/BudgetDonut";
 import SpendStreakCard from "@/components/SpendStreakCard";
+import { normalizeHomeCards, type HomeCardId } from "@/lib/homeCards";
 
 const NUM_BARS = 14;
 const MONTH_SHORT = [
@@ -357,6 +358,484 @@ export default function Home() {
     show: { opacity: 1, y: 0 },
   };
 
+  const orderedHomeCards = normalizeHomeCards(settings?.homeCards);
+
+  const renderCard = (cardId: HomeCardId) => {
+    switch (cardId) {
+      case "spend-streak":
+        return (
+          <motion.div key={cardId} variants={itemVariants}>
+            <SpendStreakCard
+              todaySpend={todaySpend}
+              targetSpend={targetSpend}
+              currentStreak={currentSpendStreak}
+              bestStreak={bestSpendStreak}
+            />
+          </motion.div>
+        );
+
+      case "activity-grid":
+        return (
+          <motion.div key={cardId} variants={itemVariants}>
+            <ActivityGrid transactions={transactions} year={year} />
+          </motion.div>
+        );
+
+      case "last7-spend":
+        return (
+          <motion.div
+            key={cardId}
+            variants={itemVariants}
+            className="p-4 bg-card rounded-2xl"
+          >
+            <div className="flex items-start justify-between mb-1">
+              <div>
+                <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                  Last 7 days · non-recurring
+                </div>
+                <div className="text-2xl font-bold">
+                  {formatCurrency(last7Spend)}
+                </div>
+              </div>
+              <div className="text-right">
+                {prev7Spend > 0 && (
+                  <div
+                    className={`flex items-center gap-1 text-xs font-medium ${
+                      pctChange7 <= 0 ? "text-emerald-400" : "text-red-400"
+                    }`}
+                  >
+                    {pctChange7 <= 0 ? (
+                      <ArrowDown className="w-3 h-3" />
+                    ) : (
+                      <ArrowUp className="w-3 h-3" />
+                    )}
+                    {Math.abs(pctChange7).toFixed(0)}% vs prior 7 days
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-end gap-[3px] mt-3" style={{ height: 110 }}>
+              {dailyBars.map((bar, i) => {
+                const heightPct =
+                  bar.spend > 0 ? (bar.spend / maxSpend) * 65 + 5 : 2;
+                const isSelected = selectedBarIdx === i;
+                return (
+                  <div
+                    key={i}
+                    className="flex-1 flex flex-col items-center gap-1 cursor-pointer"
+                    style={{ height: "100%" }}
+                    onClick={() => setSelectedBarIdx(isSelected ? null : i)}
+                  >
+                    {bar.spend > 0 && (
+                      <span className="text-[7px] text-muted-foreground leading-none whitespace-nowrap">
+                        {bar.spend >= 1000
+                          ? `${(bar.spend / 1000).toFixed(1)}k`
+                          : Math.round(bar.spend)}
+                      </span>
+                    )}
+                    <div className="flex-1 flex items-end w-full">
+                      <motion.div
+                        initial={{ height: 0 }}
+                        animate={{ height: `${heightPct}%` }}
+                        transition={{ duration: 0.5, delay: i * 0.03 }}
+                        className={`w-full rounded-t-sm overflow-hidden flex flex-col-reverse gap-[2px] ${
+                          bar.isToday
+                            ? "opacity-30"
+                            : bar.spend === 0
+                              ? "bg-muted-foreground/10"
+                              : ""
+                        } ${isSelected ? "ring-1 ring-primary/50" : ""}`}
+                      >
+                        {bar.segments.map((seg, j) => (
+                          <div
+                            key={j}
+                            className={`w-full rounded-[1px] ${
+                              bar.isToday ? "bg-muted-foreground" : "bg-primary"
+                            }`}
+                            style={{ flexGrow: seg.amount }}
+                          />
+                        ))}
+                      </motion.div>
+                    </div>
+                    <span className="text-[8px] text-muted-foreground leading-none">
+                      {bar.dayLabel}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <AnimatePresence>
+              {selectedBarIdx !== null && dailyBars[selectedBarIdx] && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  className="overflow-hidden"
+                >
+                  <div className="mt-3 pt-3 border-t border-border/30 space-y-1.5">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        {format(dailyBars[selectedBarIdx].date, "EEEE, MMM d")}
+                      </span>
+                      <button
+                        onClick={() => setSelectedBarIdx(null)}
+                        className="p-1 rounded-md hover:bg-secondary text-muted-foreground"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                    {dailyBars[selectedBarIdx].txs.length === 0 ? (
+                      <div className="text-xs text-muted-foreground text-center py-3">
+                        No non-recurring expenses
+                      </div>
+                    ) : (
+                      dailyBars[selectedBarIdx].txs.map((tx) => (
+                        <div
+                          key={tx._id}
+                          className="flex items-center gap-2.5 p-2.5 bg-secondary/50 rounded-xl"
+                        >
+                          <span
+                            className="w-8 h-8 rounded-lg flex items-center justify-center text-base shrink-0"
+                            style={{
+                              backgroundColor:
+                                (tx.categoryId?.color || "#6366f1") + "20",
+                            }}
+                          >
+                            {tx.categoryId?.emoji || "📦"}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-medium truncate">
+                              {tx.description || tx.categoryId?.name || "Unknown"}
+                            </div>
+                            <div className="text-[10px] text-muted-foreground">
+                              {tx.categoryId?.name}
+                            </div>
+                          </div>
+                          <span className="text-xs font-semibold text-red-400 flex items-center gap-1">
+                            <ArrowDownCircle className="w-3 h-3" />
+                            {formatCurrency(tx.amount)}
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </motion.div>
+        );
+
+      case "balance-chart":
+        if (balanceLineData.length <= 1) return null;
+        return (
+          <motion.div
+            key={cardId}
+            variants={itemVariants}
+            className="p-4 bg-card rounded-2xl"
+          >
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-3">
+              Balance — {year}
+            </div>
+            <div className="h-48 -mx-2 pointer-events-none">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={balanceLineData}>
+                  <defs>
+                    <linearGradient id="balGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#6366f1" stopOpacity={0.3} />
+                      <stop offset="100%" stopColor="#6366f1" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fill: "#a1a1aa", fontSize: 10 }}
+                    axisLine={false}
+                    tickLine={false}
+                    interval="preserveStartEnd"
+                  />
+                  <YAxis
+                    tick={{ fill: "#a1a1aa", fontSize: 10 }}
+                    axisLine={false}
+                    tickLine={false}
+                    width={50}
+                    tickFormatter={(v) => `€${(v / 1000).toFixed(1)}k`}
+                  />
+                  <ReferenceLine y={0} stroke="#a1a1aa" strokeDasharray="4 4" />
+                  <Area
+                    type="monotone"
+                    dataKey="balance"
+                    stroke="#6366f1"
+                    strokeWidth={2}
+                    fill="url(#balGrad)"
+                    dot={false}
+                    activeDot={false}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </motion.div>
+        );
+
+      case "balance-overview":
+        return (
+          <motion.div
+            key={cardId}
+            variants={itemVariants}
+            className={`p-4 rounded-2xl border ${
+              aboveWater >= 0
+                ? "bg-emerald-500/5 border-emerald-500/20"
+                : "bg-red-500/5 border-red-500/20"
+            }`}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-2">
+                <Wallet className="w-4 h-4 text-muted-foreground" />
+                <span className="text-xs text-muted-foreground">
+                  Current Balance
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                {aboveWater >= 0 ? (
+                  <Anchor className="w-3.5 h-3.5 text-emerald-400" />
+                ) : (
+                  <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
+                )}
+                <span className="text-xs text-muted-foreground">
+                  {aboveWater >= 0 ? "Above Water" : "Below Water"}
+                </span>
+              </div>
+            </div>
+            <div className="flex items-end justify-between">
+              <div className="text-3xl font-bold">
+                {formatCurrency(currentDerivedBalance)}
+              </div>
+              <div
+                className={`text-3xl font-bold ${aboveWater >= 0 ? "text-emerald-400" : "text-red-400"}`}
+              >
+                {formatCurrency(aboveWater)}
+              </div>
+            </div>
+            <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+              <div>
+                <span className="text-muted-foreground">Calibrated</span>
+                <div className="font-medium">
+                  {formatCurrency(calibratedBalance)}
+                </div>
+                {settings?.balanceDate && (
+                  <div className="text-[9px] text-muted-foreground/50">
+                    {format(new Date(settings.balanceDate), "MMM d")}
+                  </div>
+                )}
+              </div>
+              <div>
+                <span className="text-muted-foreground">Tax Debt</span>
+                <div className="font-medium text-red-400">
+                  {formatCurrency(taxDebt)}
+                </div>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Credit Debt</span>
+                <div className="font-medium text-red-400">
+                  {formatCurrency(creditDebt)}
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        );
+
+      case "month-summary":
+        return (
+          <motion.div
+            key={cardId}
+            variants={itemVariants}
+            className="flex items-center justify-between p-3 bg-card rounded-xl"
+          >
+            <div className="text-center flex-1">
+              <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                Income
+              </div>
+              <div className="text-sm font-semibold text-emerald-400">
+                {formatCurrency(totalIncome)}
+              </div>
+            </div>
+            <div className="w-px h-8 bg-border" />
+            <div className="text-center flex-1">
+              <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                Expenses
+              </div>
+              <div className="text-sm font-semibold text-red-400">
+                {formatCurrency(totalExpense)}
+              </div>
+            </div>
+            <div className="w-px h-8 bg-border" />
+            <div className="text-center flex-1">
+              <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                Balance
+              </div>
+              <div
+                className={`text-sm font-semibold ${monthBalance >= 0 ? "text-emerald-400" : "text-red-400"}`}
+              >
+                {formatCurrency(monthBalance)}
+              </div>
+            </div>
+          </motion.div>
+        );
+
+      case "monthly-income-expenses":
+        if (monthlyData.length === 0) return null;
+        return (
+          <motion.div
+            key={cardId}
+            variants={itemVariants}
+            className="p-4 bg-card rounded-2xl"
+          >
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-3">
+              Monthly Income vs Expenses
+            </div>
+            <div className="h-40 -mx-2 pointer-events-none">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={monthlyData} barGap={2}>
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="#27272a"
+                    vertical={false}
+                  />
+                  <XAxis
+                    dataKey="month"
+                    tick={{ fill: "#a1a1aa", fontSize: 10 }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    tick={{ fill: "#a1a1aa", fontSize: 10 }}
+                    axisLine={false}
+                    tickLine={false}
+                    width={45}
+                    tickFormatter={(v) => `€${(v / 1000).toFixed(1)}k`}
+                  />
+                  <Bar
+                    dataKey="income"
+                    fill="#22c55e"
+                    radius={[3, 3, 0, 0]}
+                    name="Income"
+                  />
+                  <Bar
+                    dataKey="expense"
+                    fill="#ef4444"
+                    radius={[3, 3, 0, 0]}
+                    name="Expenses"
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </motion.div>
+        );
+
+      case "year-summary":
+        return (
+          <motion.div
+            key={cardId}
+            variants={itemVariants}
+            className="grid grid-cols-3 gap-2"
+          >
+            <div className="p-3 bg-card rounded-2xl text-center">
+              <TrendingUp className="w-4 h-4 text-emerald-400 mx-auto mb-1" />
+              <div className="text-[10px] text-muted-foreground">Year Income</div>
+              <div className="text-sm font-bold text-emerald-400">
+                {formatCurrency(yearIncome)}
+              </div>
+            </div>
+            <div className="p-3 bg-card rounded-2xl text-center">
+              <TrendingDown className="w-4 h-4 text-red-400 mx-auto mb-1" />
+              <div className="text-[10px] text-muted-foreground">Year Expense</div>
+              <div className="text-sm font-bold text-red-400">
+                {formatCurrency(yearExpense)}
+              </div>
+            </div>
+            <div className="p-3 bg-card rounded-2xl text-center">
+              <Wallet className="w-4 h-4 text-primary mx-auto mb-1" />
+              <div className="text-[10px] text-muted-foreground">Savings Rate</div>
+              <div
+                className={`text-sm font-bold ${savingsRate >= 0 ? "text-emerald-400" : "text-red-400"}`}
+              >
+                {savingsRate.toFixed(0)}%
+              </div>
+            </div>
+          </motion.div>
+        );
+
+      case "budget-split":
+        return (
+          <motion.div
+            key={cardId}
+            variants={itemVariants}
+            className="p-4 bg-card rounded-2xl"
+          >
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-4">
+              50/30/20 Budget — {year}
+            </div>
+            <BudgetDonut
+              needs={needsSpend}
+              wants={wantsSpend}
+              savings={savingsSpend}
+              totalIncome={yearIncome}
+            />
+          </motion.div>
+        );
+
+      case "category-spend":
+        if (sortedCategories.length === 0) return null;
+        return (
+          <motion.div
+            key={cardId}
+            variants={itemVariants}
+            className="p-4 bg-card rounded-2xl"
+          >
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-3">
+              Spending by Category — {year}
+            </div>
+            <div className="space-y-2">
+              {sortedCategories.map((cat) => {
+                const pct = yearExpense > 0 ? (cat.amount / yearExpense) * 100 : 0;
+                return (
+                  <div key={cat.name} className="flex items-center gap-3 text-sm">
+                    <span
+                      className="w-8 h-8 rounded-lg flex items-center justify-center text-sm shrink-0"
+                      style={{ backgroundColor: cat.color + "20" }}
+                    >
+                      {cat.emoji}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex justify-between mb-0.5">
+                        <span className="truncate">{cat.name}</span>
+                        <span className="text-muted-foreground shrink-0 ml-2">
+                          {formatCurrency(cat.amount)}
+                        </span>
+                      </div>
+                      <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
+                        <motion.div
+                          className="h-full rounded-full"
+                          style={{ backgroundColor: cat.color }}
+                          initial={{ width: 0 }}
+                          animate={{ width: `${pct}%` }}
+                          transition={{ duration: 0.8 }}
+                        />
+                      </div>
+                    </div>
+                    <span className="text-xs text-muted-foreground w-10 text-right shrink-0">
+                      {pct.toFixed(0)}%
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </motion.div>
+        );
+    }
+  };
+
   return (
     <motion.div
       variants={containerVariants}
@@ -364,435 +843,8 @@ export default function Home() {
       animate="show"
       className="space-y-4"
     >
-      {/* 1. Current Balance + Above/Below Water */}
-      <motion.div
-        variants={itemVariants}
-        className={`p-4 rounded-2xl border ${
-          aboveWater >= 0
-            ? "bg-emerald-500/5 border-emerald-500/20"
-            : "bg-red-500/5 border-red-500/20"
-        }`}
-      >
-        <div className="flex items-center justify-between mb-1">
-          <div className="flex items-center gap-2">
-            <Wallet className="w-4 h-4 text-muted-foreground" />
-            <span className="text-xs text-muted-foreground">
-              Current Balance
-            </span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            {aboveWater >= 0 ? (
-              <Anchor className="w-3.5 h-3.5 text-emerald-400" />
-            ) : (
-              <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
-            )}
-            <span className="text-xs text-muted-foreground">
-              {aboveWater >= 0 ? "Above Water" : "Below Water"}
-            </span>
-          </div>
-        </div>
-        <div className="flex items-end justify-between">
-          <div className="text-3xl font-bold">
-            {formatCurrency(currentDerivedBalance)}
-          </div>
-          <div
-            className={`text-3xl font-bold ${aboveWater >= 0 ? "text-emerald-400" : "text-red-400"}`}
-          >
-            {formatCurrency(aboveWater)}
-          </div>
-        </div>
-        <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
-          <div>
-            <span className="text-muted-foreground">Calibrated</span>
-            <div className="font-medium">
-              {formatCurrency(calibratedBalance)}
-            </div>
-            {settings?.balanceDate && (
-              <div className="text-[9px] text-muted-foreground/50">
-                {format(new Date(settings.balanceDate), "MMM d")}
-              </div>
-            )}
-          </div>
-          <div>
-            <span className="text-muted-foreground">Tax Debt</span>
-            <div className="font-medium text-red-400">
-              {formatCurrency(taxDebt)}
-            </div>
-          </div>
-          <div>
-            <span className="text-muted-foreground">Credit Debt</span>
-            <div className="font-medium text-red-400">
-              {formatCurrency(creditDebt)}
-            </div>
-          </div>
-        </div>
-      </motion.div>
-
-      {/* 2. Daily Spend Target + Streaks */}
-      <motion.div variants={itemVariants}>
-        <SpendStreakCard
-          todaySpend={todaySpend}
-          targetSpend={targetSpend}
-          currentStreak={currentSpendStreak}
-          bestStreak={bestSpendStreak}
-        />
-      </motion.div>
-
-      {/* 3. GitHub-style Activity Grid */}
-      <motion.div variants={itemVariants}>
-        <ActivityGrid transactions={transactions} year={year} />
-      </motion.div>
-
-      {/* 4. Non-recurring Spend Bars */}
-      <motion.div variants={itemVariants} className="p-4 bg-card rounded-2xl">
-        <div className="flex items-start justify-between mb-1">
-          <div>
-            <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
-              Last 7 days · non-recurring
-            </div>
-            <div className="text-2xl font-bold">
-              {formatCurrency(last7Spend)}
-            </div>
-          </div>
-          <div className="text-right">
-            {prev7Spend > 0 && (
-              <div
-                className={`flex items-center gap-1 text-xs font-medium ${
-                  pctChange7 <= 0 ? "text-emerald-400" : "text-red-400"
-                }`}
-              >
-                {pctChange7 <= 0 ? (
-                  <ArrowDown className="w-3 h-3" />
-                ) : (
-                  <ArrowUp className="w-3 h-3" />
-                )}
-                {Math.abs(pctChange7).toFixed(0)}% vs prior 7 days
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="flex items-end gap-[3px] mt-3" style={{ height: 110 }}>
-          {dailyBars.map((bar, i) => {
-            const heightPct =
-              bar.spend > 0 ? (bar.spend / maxSpend) * 65 + 5 : 2;
-            const isSelected = selectedBarIdx === i;
-            return (
-              <div
-                key={i}
-                className="flex-1 flex flex-col items-center gap-1 cursor-pointer"
-                style={{ height: "100%" }}
-                onClick={() => setSelectedBarIdx(isSelected ? null : i)}
-              >
-                {bar.spend > 0 && (
-                  <span className="text-[7px] text-muted-foreground leading-none whitespace-nowrap">
-                    {bar.spend >= 1000
-                      ? `${(bar.spend / 1000).toFixed(1)}k`
-                      : Math.round(bar.spend)}
-                  </span>
-                )}
-                <div className="flex-1 flex items-end w-full">
-                  <motion.div
-                    initial={{ height: 0 }}
-                    animate={{ height: `${heightPct}%` }}
-                    transition={{ duration: 0.5, delay: i * 0.03 }}
-                    className={`w-full rounded-t-sm overflow-hidden flex flex-col-reverse gap-[2px] ${
-                      bar.isToday
-                        ? "opacity-30"
-                        : bar.spend === 0
-                          ? "bg-muted-foreground/10"
-                          : ""
-                    } ${isSelected ? "ring-1 ring-primary/50" : ""}`}
-                  >
-                    {bar.segments.map((seg, j) => (
-                      <div
-                        key={j}
-                        className={`w-full rounded-[1px] ${
-                          bar.isToday ? "bg-muted-foreground" : "bg-primary"
-                        }`}
-                        style={{ flexGrow: seg.amount }}
-                      />
-                    ))}
-                  </motion.div>
-                </div>
-                <span className="text-[8px] text-muted-foreground leading-none">
-                  {bar.dayLabel}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Day drawer */}
-        <AnimatePresence>
-          {selectedBarIdx !== null && dailyBars[selectedBarIdx] && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              className="overflow-hidden"
-            >
-              <div className="mt-3 pt-3 border-t border-border/30 space-y-1.5">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-medium text-muted-foreground">
-                    {format(dailyBars[selectedBarIdx].date, "EEEE, MMM d")}
-                  </span>
-                  <button
-                    onClick={() => setSelectedBarIdx(null)}
-                    className="p-1 rounded-md hover:bg-secondary text-muted-foreground"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-                {dailyBars[selectedBarIdx].txs.length === 0 ? (
-                  <div className="text-xs text-muted-foreground text-center py-3">
-                    No non-recurring expenses
-                  </div>
-                ) : (
-                  dailyBars[selectedBarIdx].txs.map((tx) => (
-                    <div
-                      key={tx._id}
-                      className="flex items-center gap-2.5 p-2.5 bg-secondary/50 rounded-xl"
-                    >
-                      <span
-                        className="w-8 h-8 rounded-lg flex items-center justify-center text-base shrink-0"
-                        style={{
-                          backgroundColor:
-                            (tx.categoryId?.color || "#6366f1") + "20",
-                        }}
-                      >
-                        {tx.categoryId?.emoji || "📦"}
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-xs font-medium truncate">
-                          {tx.description || tx.categoryId?.name || "Unknown"}
-                        </div>
-                        <div className="text-[10px] text-muted-foreground">
-                          {tx.categoryId?.name}
-                        </div>
-                      </div>
-                      <span className="text-xs font-semibold text-red-400 flex items-center gap-1">
-                        <ArrowDownCircle className="w-3 h-3" />
-                        {formatCurrency(tx.amount)}
-                      </span>
-                    </div>
-                  ))
-                )}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </motion.div>
-
-      {/* 5. Month Income / Expenses / Balance */}
-      <motion.div
-        variants={itemVariants}
-        className="flex items-center justify-between p-3 bg-card rounded-xl"
-      >
-        <div className="text-center flex-1">
-          <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
-            Income
-          </div>
-          <div className="text-sm font-semibold text-emerald-400">
-            {formatCurrency(totalIncome)}
-          </div>
-        </div>
-        <div className="w-px h-8 bg-border" />
-        <div className="text-center flex-1">
-          <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
-            Expenses
-          </div>
-          <div className="text-sm font-semibold text-red-400">
-            {formatCurrency(totalExpense)}
-          </div>
-        </div>
-        <div className="w-px h-8 bg-border" />
-        <div className="text-center flex-1">
-          <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
-            Balance
-          </div>
-          <div
-            className={`text-sm font-semibold ${monthBalance >= 0 ? "text-emerald-400" : "text-red-400"}`}
-          >
-            {formatCurrency(monthBalance)}
-          </div>
-        </div>
-      </motion.div>
-
-      {/* 6. Yearly Balance Chart */}
-      {balanceLineData.length > 1 && (
-        <motion.div variants={itemVariants} className="p-4 bg-card rounded-2xl">
-          <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-3">
-            Balance — {year}
-          </div>
-          <div className="h-48 -mx-2 pointer-events-none">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={balanceLineData}>
-                <defs>
-                  <linearGradient id="balGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#6366f1" stopOpacity={0.3} />
-                    <stop offset="100%" stopColor="#6366f1" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
-                <XAxis
-                  dataKey="label"
-                  tick={{ fill: "#a1a1aa", fontSize: 10 }}
-                  axisLine={false}
-                  tickLine={false}
-                  interval="preserveStartEnd"
-                />
-                <YAxis
-                  tick={{ fill: "#a1a1aa", fontSize: 10 }}
-                  axisLine={false}
-                  tickLine={false}
-                  width={50}
-                  tickFormatter={(v) => `€${(v / 1000).toFixed(1)}k`}
-                />
-                <ReferenceLine y={0} stroke="#a1a1aa" strokeDasharray="4 4" />
-                <Area
-                  type="monotone"
-                  dataKey="balance"
-                  stroke="#6366f1"
-                  strokeWidth={2}
-                  fill="url(#balGrad)"
-                  dot={false}
-                  activeDot={false}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </motion.div>
-      )}
-
-      {/* 7. Monthly Income vs Expenses */}
-      {monthlyData.length > 0 && (
-        <motion.div variants={itemVariants} className="p-4 bg-card rounded-2xl">
-          <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-3">
-            Monthly Income vs Expenses
-          </div>
-          <div className="h-40 -mx-2 pointer-events-none">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={monthlyData} barGap={2}>
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="#27272a"
-                  vertical={false}
-                />
-                <XAxis
-                  dataKey="month"
-                  tick={{ fill: "#a1a1aa", fontSize: 10 }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis
-                  tick={{ fill: "#a1a1aa", fontSize: 10 }}
-                  axisLine={false}
-                  tickLine={false}
-                  width={45}
-                  tickFormatter={(v) => `€${(v / 1000).toFixed(1)}k`}
-                />
-                <Bar
-                  dataKey="income"
-                  fill="#22c55e"
-                  radius={[3, 3, 0, 0]}
-                  name="Income"
-                />
-                <Bar
-                  dataKey="expense"
-                  fill="#ef4444"
-                  radius={[3, 3, 0, 0]}
-                  name="Expenses"
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </motion.div>
-      )}
-
-      {/* 7. Year Summary Cards (Income / Expense / Savings Rate) */}
-      <motion.div variants={itemVariants} className="grid grid-cols-3 gap-2">
-        <div className="p-3 bg-card rounded-2xl text-center">
-          <TrendingUp className="w-4 h-4 text-emerald-400 mx-auto mb-1" />
-          <div className="text-[10px] text-muted-foreground">Year Income</div>
-          <div className="text-sm font-bold text-emerald-400">
-            {formatCurrency(yearIncome)}
-          </div>
-        </div>
-        <div className="p-3 bg-card rounded-2xl text-center">
-          <TrendingDown className="w-4 h-4 text-red-400 mx-auto mb-1" />
-          <div className="text-[10px] text-muted-foreground">Year Expense</div>
-          <div className="text-sm font-bold text-red-400">
-            {formatCurrency(yearExpense)}
-          </div>
-        </div>
-        <div className="p-3 bg-card rounded-2xl text-center">
-          <Wallet className="w-4 h-4 text-primary mx-auto mb-1" />
-          <div className="text-[10px] text-muted-foreground">Savings Rate</div>
-          <div
-            className={`text-sm font-bold ${savingsRate >= 0 ? "text-emerald-400" : "text-red-400"}`}
-          >
-            {savingsRate.toFixed(0)}%
-          </div>
-        </div>
-      </motion.div>
-
-      {/* 8. 50/30/20 Budget */}
-      <motion.div variants={itemVariants} className="p-4 bg-card rounded-2xl">
-        <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-4">
-          50/30/20 Budget — {year}
-        </div>
-        <BudgetDonut
-          needs={needsSpend}
-          wants={wantsSpend}
-          savings={savingsSpend}
-          totalIncome={yearIncome}
-        />
-      </motion.div>
-
-      {/* 9. Spending by Category */}
-      {sortedCategories.length > 0 && (
-        <motion.div variants={itemVariants} className="p-4 bg-card rounded-2xl">
-          <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-3">
-            Spending by Category — {year}
-          </div>
-          <div className="space-y-2">
-            {sortedCategories.map((cat) => {
-              const pct =
-                yearExpense > 0 ? (cat.amount / yearExpense) * 100 : 0;
-              return (
-                <div key={cat.name} className="flex items-center gap-3 text-sm">
-                  <span
-                    className="w-8 h-8 rounded-lg flex items-center justify-center text-sm shrink-0"
-                    style={{ backgroundColor: cat.color + "20" }}
-                  >
-                    {cat.emoji}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex justify-between mb-0.5">
-                      <span className="truncate">{cat.name}</span>
-                      <span className="text-muted-foreground shrink-0 ml-2">
-                        {formatCurrency(cat.amount)}
-                      </span>
-                    </div>
-                    <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
-                      <motion.div
-                        className="h-full rounded-full"
-                        style={{ backgroundColor: cat.color }}
-                        initial={{ width: 0 }}
-                        animate={{ width: `${pct}%` }}
-                        transition={{ duration: 0.8 }}
-                      />
-                    </div>
-                  </div>
-                  <span className="text-xs text-muted-foreground w-10 text-right shrink-0">
-                    {pct.toFixed(0)}%
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </motion.div>
+      {orderedHomeCards.map((card) =>
+        card.enabled ? renderCard(card.id) : null,
       )}
     </motion.div>
   );

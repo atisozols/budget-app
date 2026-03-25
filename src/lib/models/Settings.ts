@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document } from "mongoose";
+import { DEFAULT_HOME_CARDS, HOME_CARD_DEFINITIONS } from "@/lib/homeCards";
 
 export interface ISettings extends Document {
   userId: mongoose.Types.ObjectId;
@@ -11,6 +12,10 @@ export interface ISettings extends Document {
   incomeTags: string[];
   vsaoiRate: number;
   iinRate: number;
+  homeCards: {
+    id: string;
+    enabled: boolean;
+  }[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -33,8 +38,22 @@ const SettingsSchema = new Schema<ISettings>(
     incomeTags: [{ type: String }],
     vsaoiRate: { type: Number, default: 31.07 },
     iinRate: { type: Number, default: 25.5 },
+    homeCards: [
+      {
+        id: {
+          type: String,
+          enum: HOME_CARD_DEFINITIONS.map((card) => card.id),
+          required: true,
+        },
+        enabled: { type: Boolean, default: true },
+      },
+    ],
   },
   { timestamps: true },
+);
+
+SettingsSchema.path("homeCards").default(() =>
+  DEFAULT_HOME_CARDS.map((card) => ({ ...card })),
 );
 
 SettingsSchema.index({ userId: 1 }, { unique: true });

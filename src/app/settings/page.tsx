@@ -17,13 +17,23 @@ import {
   Trash2,
   UserPlus,
   ChevronDown,
+  LayoutPanelTop,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 import { SettingsType, CategoryType, BudgetType } from "@/lib/types";
 import { format } from "date-fns";
 import type { SessionUser } from "@/lib/auth";
+import { useAppData } from "@/lib/AppDataContext";
+import {
+  HOME_CARD_DEFINITIONS,
+  type HomeCardPreference,
+  normalizeHomeCards,
+} from "@/lib/homeCards";
 
 type DrawerKey =
+  | "home-cards"
   | "add-user"
   | "balance-debts"
   | "tax-rates"
@@ -86,6 +96,7 @@ function DrawerSection({
 }
 
 export default function SettingsPage() {
+  const { refetchSettings } = useAppData();
   const [settings, setSettings] = useState<SettingsType | null>(null);
   const [user, setUser] = useState<SessionUser | null>(null);
   const [currentBalance, setCurrentBalance] = useState("");
@@ -94,6 +105,7 @@ export default function SettingsPage() {
   const [vsaoiRate, setVsaoiRate] = useState("");
   const [iinRate, setIinRate] = useState("");
   const [incomeTags, setIncomeTags] = useState<string[]>([]);
+  const [homeCards, setHomeCards] = useState<HomeCardPreference[]>([]);
   const [newTag, setNewTag] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -120,7 +132,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     Promise.all([
-      fetch("/api/settings").then((r) => r.json()),
+      fetch("/api/settings", { cache: "no-store" }).then((r) => r.json()),
       fetch("/api/categories").then((r) => r.json()),
       fetch("/api/auth/me")
         .then(async (r) => (r.ok ? (await r.json()).user : null))
@@ -135,6 +147,7 @@ export default function SettingsPage() {
         setVsaoiRate((s.vsaoiRate ?? 31.07).toString());
         setIinRate((s.iinRate ?? 25.5).toString());
         setIncomeTags(s.incomeTags || []);
+        setHomeCards(normalizeHomeCards(s.homeCards));
         setCategories(cats);
       })
       .catch(console.error);
@@ -153,9 +166,14 @@ export default function SettingsPage() {
           vsaoiRate: parseFloat(vsaoiRate) || 31.07,
           iinRate: parseFloat(iinRate) || 25.5,
           incomeTags,
+          homeCards,
         }),
       });
       if (res.ok) {
+        const updatedSettings = (await res.json()) as SettingsType;
+        setSettings(updatedSettings);
+        setHomeCards(normalizeHomeCards(updatedSettings.homeCards));
+        await refetchSettings();
         setSaved(true);
         setTimeout(() => setSaved(false), 2000);
       }
@@ -175,6 +193,28 @@ export default function SettingsPage() {
 
   const removeTag = (tag: string) => {
     setIncomeTags((prev) => prev.filter((t) => t !== tag));
+  };
+
+  const toggleHomeCard = (id: HomeCardPreference["id"]) => {
+    setHomeCards((current) =>
+      current.map((card) =>
+        card.id === id ? { ...card, enabled: !card.enabled } : card,
+      ),
+    );
+  };
+
+  const moveHomeCard = (index: number, direction: -1 | 1) => {
+    setHomeCards((current) => {
+      const nextIndex = index + direction;
+      if (nextIndex < 0 || nextIndex >= current.length) {
+        return current;
+      }
+
+      const next = [...current];
+      const [item] = next.splice(index, 1);
+      next.splice(nextIndex, 0, item);
+      return next;
+    });
   };
 
   // ─── Category management ─────────────────────────────────────────
@@ -547,6 +587,76 @@ export default function SettingsPage() {
       </motion.div>
 
       <motion.div variants={itemVariants} className="space-y-3">
+        <DrawerSection
+          title="Main View Cards"
+          subtitle={`${homeCards.filter((card) => card.enabled).length} visible cards in your current order`}
+          icon={<LayoutPanelTop className="h-4 w-4" />}
+          open={activeDrawer === "home-cards"}
+          onToggle={() => toggleDrawer("home-cards")}
+        >
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              Choose which cards appear on the home screen and move them into the
+              order you prefer.
+            </p>
+
+            <div className="space-y-2">
+              {homeCards.map((card, index) => {
+                const definition = HOME_CARD_DEFINITIONS.find(
+                  (item) => item.id === card.id,
+                );
+                if (!definition) return null;
+
+                return (
+                  <div
+                    key={card.id}
+                    className="flex items-center gap-3 rounded-xl bg-secondary/50 px-3 py-3"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleHomeCard(card.id)}
+                      className={cn(
+                        "flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-all",
+                        card.enabled
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-border/70 bg-background/40 text-transparent",
+                      )}
+                    >
+                      <Check className="h-3 w-3" />
+                    </button>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium">{definition.title}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {definition.description}
+                      </div>
+                    </div>
+
+                    <div className="flex shrink-0 gap-1">
+                      <button
+                        type="button"
+                        onClick={() => moveHomeCard(index, -1)}
+                        disabled={index === 0}
+                        className="rounded-lg bg-background/60 p-2 text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-35"
+                      >
+                        <ArrowUp className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveHomeCard(index, 1)}
+                        disabled={index === homeCards.length - 1}
+                        className="rounded-lg bg-background/60 p-2 text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-35"
+                      >
+                        <ArrowDown className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </DrawerSection>
+
         <DrawerSection
           title="Add User"
           subtitle="Create another account from this signed-in session"
