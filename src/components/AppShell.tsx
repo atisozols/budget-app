@@ -20,6 +20,7 @@ export default function AppShell({
   user: SessionUser | null;
 }) {
   const pathname = usePathname();
+  const showFloatingAdd = pathname !== "/settings";
 
   if (BARE_PATHS.some((p) => pathname.startsWith(p))) {
     return <>{children}</>;
@@ -40,7 +41,16 @@ export default function AppShell({
               <UserGreeting name={user.name} />
             ) : null}
             <MonthSwitcher />
-            <main className="flex-1 pb-28">{children}</main>
+            <main
+              className="flex-1"
+              style={{
+                paddingBottom: showFloatingAdd
+                  ? "calc(env(safe-area-inset-bottom, 0px) + 10rem)"
+                  : "calc(env(safe-area-inset-bottom, 0px) + 5.5rem)",
+              }}
+            >
+              {children}
+            </main>
           </div>
           <Navigation />
         </LoadingGate>

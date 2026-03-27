@@ -2,6 +2,7 @@ export type HomeCardId =
   | "spend-streak"
   | "activity-grid"
   | "last7-spend"
+  | "average-daily-spend"
   | "balance-chart"
   | "balance-overview"
   | "month-summary"
@@ -36,6 +37,11 @@ export const HOME_CARD_DEFINITIONS: HomeCardDefinition[] = [
     id: "last7-spend",
     title: "Last 7 Days",
     description: "Recent non-recurring expense bars and day breakdown",
+  },
+  {
+    id: "average-daily-spend",
+    title: "Average Daily Spend",
+    description: "Year-to-date running daily spend average",
   },
   {
     id: "balance-chart",

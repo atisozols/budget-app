@@ -31,6 +31,7 @@ import ActivityGrid from "@/components/ActivityGrid";
 import BudgetDonut from "@/components/BudgetDonut";
 import SpendStreakCard from "@/components/SpendStreakCard";
 import { normalizeHomeCards, type HomeCardId } from "@/lib/homeCards";
+import { isSpendWidgetExpense } from "@/lib/spendInsights";
 
 const NUM_BARS = 14;
 const MONTH_SHORT = [
@@ -61,9 +62,7 @@ export default function Home() {
 
   // ─── Derived balance from calibration ─────────────────────────────
   const calibratedBalance = settings?.currentBalance || 0;
-  const balanceDate = settings?.balanceDate
-    ? new Date(settings.balanceDate)
-    : new Date();
+  const balanceDateValue = settings?.balanceDate;
   const taxDebt = settings?.taxDebt || 0;
   const creditDebt = settings?.creditDebt || 0;
   const totalDebt = taxDebt + creditDebt;
@@ -75,10 +74,15 @@ export default function Home() {
       ),
     [transactions],
   );
+  const spendWidgetTransactions = useMemo(
+    () => transactions.filter(isSpendWidgetExpense),
+    [transactions],
+  );
 
   // Compute balance at Jan 1 from calibration point
   const balanceAtJan1 = useMemo(() => {
     const jan1 = new Date(year, 0, 1);
+    const balanceDate = balanceDateValue ? new Date(balanceDateValue) : new Date();
     let delta = 0;
     for (const tx of sorted) {
       const d = new Date(tx.date);
@@ -87,7 +91,7 @@ export default function Home() {
       delta += tx.type === "income" ? tx.amount : -tx.amount;
     }
     return calibratedBalance - delta;
-  }, [sorted, calibratedBalance, balanceDate, year]);
+  }, [sorted, calibratedBalance, balanceDateValue, year]);
 
   // Balance line chart data (daily running balance)
   const balanceLineData = useMemo(() => {
@@ -156,13 +160,9 @@ export default function Home() {
       const d = new Date(today);
       d.setDate(d.getDate() - i);
       const key = toLocalDateKey(d);
-      const dayTxs = transactions.filter((t) => {
+      const dayTxs = spendWidgetTransactions.filter((t) => {
         const txD = new Date(t.date);
-        return (
-          toLocalDateKey(txD) === key &&
-          t.type === "expense" &&
-          !t.recurringPaymentId
-        );
+        return toLocalDateKey(txD) === key;
       });
       const segments = dayTxs.map((t) => ({ amount: t.amount }));
       bars.push({
@@ -175,7 +175,7 @@ export default function Home() {
       });
     }
     return bars;
-  }, [transactions]);
+  }, [spendWidgetTransactions]);
 
   const maxSpend = Math.max(...dailyBars.map((b) => b.spend), 1);
 
@@ -188,11 +188,7 @@ export default function Home() {
         year === now.getFullYear() ? today : new Date(year, 11, 31);
 
       const dailySpend = new Map<string, number>();
-      for (const transaction of transactions) {
-        if (transaction.type !== "expense" || transaction.recurringPaymentId) {
-          continue;
-        }
-
+      for (const transaction of spendWidgetTransactions) {
         const date = new Date(transaction.date);
         const key = toLocalDateKey(date);
         dailySpend.set(key, (dailySpend.get(key) || 0) + transaction.amount);
@@ -235,7 +231,7 @@ export default function Home() {
         bestSpendStreak: maxStreak,
         targetSpend: dayCount > 0 ? totalSpend / dayCount : 0,
       };
-    }, [transactions, year]);
+    }, [spendWidgetTransactions, year]);
 
   // ─── Rolling 7-day comparison ──────────────────────────────────────
   const { last7Spend, prev7Spend, pctChange7 } = useMemo(() => {
@@ -254,8 +250,7 @@ export default function Home() {
 
     let r7 = 0;
     let p7 = 0;
-    for (const t of transactions) {
-      if (t.type !== "expense" || t.recurringPaymentId) continue;
+    for (const t of spendWidgetTransactions) {
       const d = new Date(t.date);
       if (d >= start7 && d <= now) r7 += t.amount;
       if (d >= start14 && d <= end14) p7 += t.amount;
@@ -263,7 +258,47 @@ export default function Home() {
 
     const pct = p7 > 0 ? ((r7 - p7) / p7) * 100 : 0;
     return { last7Spend: r7, prev7Spend: p7, pctChange7: pct };
-  }, [transactions]);
+  }, [spendWidgetTransactions]);
+
+  const averageDailySpendData = useMemo(() => {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const jan1 = new Date(year, 0, 1);
+    const endDate =
+      year === now.getFullYear() ? today : new Date(year, 11, 31);
+
+    const spendByDate = new Map<string, number>();
+    for (const transaction of spendWidgetTransactions) {
+      const date = new Date(transaction.date);
+      const key = toLocalDateKey(date);
+      spendByDate.set(key, (spendByDate.get(key) || 0) + transaction.amount);
+    }
+
+    const points: { date: string; label: string; average: number }[] = [];
+    let totalSpend = 0;
+    let dayCount = 0;
+
+    const cursor = new Date(jan1);
+    while (cursor <= endDate) {
+      const key = toLocalDateKey(cursor);
+      totalSpend += spendByDate.get(key) || 0;
+      dayCount++;
+
+      points.push({
+        date: key,
+        label: `${MONTH_SHORT[cursor.getMonth()]} ${cursor.getDate()}`,
+        average: totalSpend / dayCount,
+      });
+
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    return points;
+  }, [spendWidgetTransactions, year]);
+  const currentAverageDailySpend =
+    averageDailySpendData.length > 0
+      ? averageDailySpendData[averageDailySpendData.length - 1].average
+      : 0;
 
   // ─── Monthly income vs expense (for charts) ───────────────────────
   const monthlyData = useMemo(() => {
@@ -569,6 +604,66 @@ export default function Home() {
                     stroke="#6366f1"
                     strokeWidth={2}
                     fill="url(#balGrad)"
+                    dot={false}
+                    activeDot={false}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </motion.div>
+        );
+
+      case "average-daily-spend":
+        if (averageDailySpendData.length === 0) return null;
+        return (
+          <motion.div
+            key={cardId}
+            variants={itemVariants}
+            className="p-4 bg-card rounded-2xl"
+          >
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                  Average Daily Spend — {year}
+                </div>
+                <div className="text-2xl font-bold">
+                  {formatCurrency(currentAverageDailySpend)}
+                </div>
+              </div>
+              <div className="text-right text-[10px] uppercase tracking-wider text-muted-foreground">
+                Non-recurring
+              </div>
+            </div>
+            <div className="h-48 -mx-2 pointer-events-none">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={averageDailySpendData}>
+                  <defs>
+                    <linearGradient id="avgSpendGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#f97316" stopOpacity={0.3} />
+                      <stop offset="100%" stopColor="#f97316" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fill: "#a1a1aa", fontSize: 10 }}
+                    axisLine={false}
+                    tickLine={false}
+                    interval="preserveStartEnd"
+                  />
+                  <YAxis
+                    tick={{ fill: "#a1a1aa", fontSize: 10 }}
+                    axisLine={false}
+                    tickLine={false}
+                    width={50}
+                    tickFormatter={(value) => `€${Math.round(value)}`}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="average"
+                    stroke="#f97316"
+                    strokeWidth={2}
+                    fill="url(#avgSpendGrad)"
                     dot={false}
                     activeDot={false}
                   />
