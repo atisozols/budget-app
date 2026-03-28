@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useRef, useEffect } from "react";
 import { TransactionType } from "@/lib/types";
-import { isSpendWidgetExpense } from "@/lib/spendInsights";
+import { buildSpendWidgetDailySeries } from "@/lib/spendInsights";
 
 const CELL = 7;
 const GAP = 3;
@@ -42,41 +42,12 @@ export default function ActivityGrid({
   }, []);
 
   const realCells = useMemo(() => {
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const jan1 = new Date(year, 0, 1);
-    const endDate =
-      year === now.getFullYear() ? today : new Date(year, 11, 31);
-
-    // Build daily spend map
-    const dailySpend = new Map<string, number>();
-    for (const t of transactions) {
-      if (!isSpendWidgetExpense(t)) continue;
-      const d = new Date(t.date);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      dailySpend.set(key, (dailySpend.get(key) || 0) + t.amount);
-    }
-
-    const cells: CellData[] = [];
-    let totalSpend = 0;
-    let dayCount = 0;
-
-    const d = new Date(jan1);
-    while (d <= endDate) {
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      const spend = dailySpend.get(key) || 0;
-      const avg = dayCount > 0 ? totalSpend / dayCount : 0;
-      const isGood = dayCount > 0 && spend < avg;
-      const isToday = d.getTime() === today.getTime();
-
-      cells.push({ isGood, isToday, spend, avg });
-
-      totalSpend += spend;
-      dayCount++;
-      d.setDate(d.getDate() + 1);
-    }
-
-    return cells;
+    return buildSpendWidgetDailySeries(transactions, year).map((day) => ({
+      isGood: day.isBelowAverage,
+      isToday: day.isToday,
+      spend: day.spend,
+      avg: day.averageBeforeSpend,
+    }));
   }, [transactions, year]);
 
   // Build grid: fill real cells, pad with nulls to fill numCols * 7, slice to fit
@@ -115,7 +86,7 @@ export default function ActivityGrid({
               let bg: string;
               let shadow = "none";
               if (!cell) {
-                bg = "rgba(34,197,94,0.08)";
+                bg = "rgba(161,161,170,0.12)";
               } else if (cell.isGood) {
                 bg = "#22c55e";
                 shadow = "0 0 4px 1px rgba(34,197,94,0.2)";

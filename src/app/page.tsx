@@ -31,7 +31,11 @@ import ActivityGrid from "@/components/ActivityGrid";
 import BudgetDonut from "@/components/BudgetDonut";
 import SpendStreakCard from "@/components/SpendStreakCard";
 import { normalizeHomeCards, type HomeCardId } from "@/lib/homeCards";
-import { isSpendWidgetExpense } from "@/lib/spendInsights";
+import {
+  buildSpendWidgetDailySeries,
+  isSpendWidgetExpense,
+  toLocalDateKey,
+} from "@/lib/spendInsights";
 
 const NUM_BARS = 14;
 const MONTH_SHORT = [
@@ -48,13 +52,6 @@ const MONTH_SHORT = [
   "Nov",
   "Dec",
 ];
-
-function toLocalDateKey(d: Date) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
 
 export default function Home() {
   const { transactions, settings, year } = useAppData();
@@ -77,6 +74,23 @@ export default function Home() {
   const spendWidgetTransactions = useMemo(
     () => transactions.filter(isSpendWidgetExpense),
     [transactions],
+  );
+  const spendWidgetTransactionsByDate = useMemo(() => {
+    const grouped = new Map<string, typeof transactions>();
+    for (const transaction of spendWidgetTransactions) {
+      const key = toLocalDateKey(new Date(transaction.date));
+      const bucket = grouped.get(key);
+      if (bucket) {
+        bucket.push(transaction);
+      } else {
+        grouped.set(key, [transaction]);
+      }
+    }
+    return grouped;
+  }, [spendWidgetTransactions]);
+  const spendWidgetDailySeries = useMemo(
+    () => buildSpendWidgetDailySeries(transactions, year),
+    [transactions, year],
   );
 
   // Compute balance at Jan 1 from calibration point
@@ -144,70 +158,28 @@ export default function Home() {
 
   // ─── Daily spend bars (last NUM_BARS days) ─────────────────────────
   const dailyBars = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
     const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const bars: {
-      date: Date;
-      spend: number;
-      segments: { amount: number }[];
-      txs: typeof transactions;
-      isToday: boolean;
-      dayLabel: string;
-    }[] = [];
-
-    for (let i = NUM_BARS - 1; i >= 0; i--) {
-      const d = new Date(today);
-      d.setDate(d.getDate() - i);
-      const key = toLocalDateKey(d);
-      const dayTxs = spendWidgetTransactions.filter((t) => {
-        const txD = new Date(t.date);
-        return toLocalDateKey(txD) === key;
-      });
-      const segments = dayTxs.map((t) => ({ amount: t.amount }));
-      bars.push({
-        date: d,
+    return spendWidgetDailySeries.slice(-NUM_BARS).map((day) => {
+      const dayTxs = spendWidgetTransactionsByDate.get(day.dateKey) ?? [];
+      return {
+        date: day.date,
         spend: dayTxs.reduce((s, t) => s + t.amount, 0),
-        segments,
+        segments: dayTxs.map((t) => ({ amount: t.amount })),
         txs: dayTxs,
-        isToday: i === 0,
-        dayLabel: dayNames[d.getDay()],
-      });
-    }
-    return bars;
-  }, [spendWidgetTransactions]);
+        isToday: day.isToday,
+        dayLabel: dayNames[day.date.getDay()],
+      };
+    });
+  }, [spendWidgetDailySeries, spendWidgetTransactionsByDate]);
 
   const maxSpend = Math.max(...dailyBars.map((b) => b.spend), 1);
 
   const { todaySpend, currentSpendStreak, bestSpendStreak, targetSpend } =
     useMemo(() => {
-      const now = new Date();
-      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const jan1 = new Date(year, 0, 1);
-      const endDate =
-        year === now.getFullYear() ? today : new Date(year, 11, 31);
-
-      const dailySpend = new Map<string, number>();
-      for (const transaction of spendWidgetTransactions) {
-        const date = new Date(transaction.date);
-        const key = toLocalDateKey(date);
-        dailySpend.set(key, (dailySpend.get(key) || 0) + transaction.amount);
-      }
-
-      let totalSpend = 0;
-      let dayCount = 0;
-      let streak = 0;
       let maxStreak = 0;
-      let spendToday = 0;
-
-      const cursor = new Date(jan1);
-      while (cursor <= endDate) {
-        const key = toLocalDateKey(cursor);
-        const spend = dailySpend.get(key) || 0;
-        const avg = dayCount > 0 ? totalSpend / dayCount : 0;
-        const isGood = dayCount > 0 && spend < avg;
-
-        if (isGood) {
+      let streak = 0;
+      for (const day of spendWidgetDailySeries) {
+        if (day.isBelowAverage) {
           streak++;
           if (streak > maxStreak) {
             maxStreak = streak;
@@ -215,86 +187,45 @@ export default function Home() {
         } else {
           streak = 0;
         }
-
-        if (cursor.getTime() === today.getTime()) {
-          spendToday = spend;
-        }
-
-        totalSpend += spend;
-        dayCount++;
-        cursor.setDate(cursor.getDate() + 1);
       }
 
+      let currentStreak = 0;
+      for (let i = spendWidgetDailySeries.length - 1; i >= 0; i--) {
+        if (!spendWidgetDailySeries[i].isBelowAverage) break;
+        currentStreak++;
+      }
+
+      const latestDay = spendWidgetDailySeries[spendWidgetDailySeries.length - 1];
+
       return {
-        todaySpend: spendToday,
-        currentSpendStreak: streak,
+        todaySpend: latestDay?.isToday ? latestDay.spend : 0,
+        currentSpendStreak: currentStreak,
         bestSpendStreak: maxStreak,
-        targetSpend: dayCount > 0 ? totalSpend / dayCount : 0,
+        targetSpend: latestDay?.runningAverageSpend ?? 0,
       };
-    }, [spendWidgetTransactions, year]);
+    }, [spendWidgetDailySeries]);
 
   // ─── Rolling 7-day comparison ──────────────────────────────────────
   const { last7Spend, prev7Spend, pctChange7 } = useMemo(() => {
-    const now = new Date();
-    now.setHours(23, 59, 59, 999);
-
-    const start7 = new Date(now);
-    start7.setDate(start7.getDate() - 6);
-    start7.setHours(0, 0, 0, 0);
-
-    const end14 = new Date(start7);
-    end14.setMilliseconds(-1);
-    const start14 = new Date(end14);
-    start14.setDate(start14.getDate() - 6);
-    start14.setHours(0, 0, 0, 0);
-
-    let r7 = 0;
-    let p7 = 0;
-    for (const t of spendWidgetTransactions) {
-      const d = new Date(t.date);
-      if (d >= start7 && d <= now) r7 += t.amount;
-      if (d >= start14 && d <= end14) p7 += t.amount;
-    }
-
+    const last7 = spendWidgetDailySeries
+      .slice(-7)
+      .reduce((sum, day) => sum + day.spend, 0);
+    const prev7 = spendWidgetDailySeries
+      .slice(-14, -7)
+      .reduce((sum, day) => sum + day.spend, 0);
+    const r7 = last7;
+    const p7 = prev7;
     const pct = p7 > 0 ? ((r7 - p7) / p7) * 100 : 0;
     return { last7Spend: r7, prev7Spend: p7, pctChange7: pct };
-  }, [spendWidgetTransactions]);
+  }, [spendWidgetDailySeries]);
 
   const averageDailySpendData = useMemo(() => {
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const jan1 = new Date(year, 0, 1);
-    const endDate =
-      year === now.getFullYear() ? today : new Date(year, 11, 31);
-
-    const spendByDate = new Map<string, number>();
-    for (const transaction of spendWidgetTransactions) {
-      const date = new Date(transaction.date);
-      const key = toLocalDateKey(date);
-      spendByDate.set(key, (spendByDate.get(key) || 0) + transaction.amount);
-    }
-
-    const points: { date: string; label: string; average: number }[] = [];
-    let totalSpend = 0;
-    let dayCount = 0;
-
-    const cursor = new Date(jan1);
-    while (cursor <= endDate) {
-      const key = toLocalDateKey(cursor);
-      totalSpend += spendByDate.get(key) || 0;
-      dayCount++;
-
-      points.push({
-        date: key,
-        label: `${MONTH_SHORT[cursor.getMonth()]} ${cursor.getDate()}`,
-        average: totalSpend / dayCount,
-      });
-
-      cursor.setDate(cursor.getDate() + 1);
-    }
-
-    return points;
-  }, [spendWidgetTransactions, year]);
+    return spendWidgetDailySeries.map((day) => ({
+      date: day.dateKey,
+      label: `${MONTH_SHORT[day.date.getMonth()]} ${day.date.getDate()}`,
+      average: day.runningAverageSpend,
+    }));
+  }, [spendWidgetDailySeries]);
   const currentAverageDailySpend =
     averageDailySpendData.length > 0
       ? averageDailySpendData[averageDailySpendData.length - 1].average

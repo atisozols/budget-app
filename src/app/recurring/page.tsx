@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Plus, Trash2, Repeat, Check, Calendar, FileText } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
@@ -29,11 +29,11 @@ export default function RecurringPage() {
   const {
     recurring: payments,
     categories,
-    transactions: allTxs,
     refetchRecurring,
     refetchTransactions,
   } = useAppData();
 
+  const [monthTransactions, setMonthTransactions] = useState<TransactionType[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
@@ -43,15 +43,26 @@ export default function RecurringPage() {
   const [paying, setPaying] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [editAmount, setEditAmount] = useState("");
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
 
-  const monthTransactions = useMemo(
-    () =>
-      allTxs.filter((t) => {
-        const d = new Date(t.date);
-        return d.getMonth() + 1 === month && d.getFullYear() === year;
-      }),
-    [allTxs, month, year],
-  );
+  const fetchMonthTransactions = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/transactions?month=${month}&year=${year}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        throw new Error("Failed to fetch monthly transactions");
+      }
+      const data = (await res.json()) as TransactionType[];
+      setMonthTransactions(data);
+    } catch (error) {
+      console.error("Failed to fetch recurring month transactions:", error);
+    }
+  }, [month, year]);
+
+  useEffect(() => {
+    fetchMonthTransactions();
+  }, [fetchMonthTransactions]);
 
   const expenseCategories = categories.filter((c) => c.type === "expense");
 
@@ -75,6 +86,7 @@ export default function RecurringPage() {
   const handleAdd = async () => {
     if (!name || !amount || !categoryId) return;
     try {
+      setActionMessage(null);
       const res = await fetch("/api/recurring", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -96,9 +108,13 @@ export default function RecurringPage() {
         setCategoryId("");
         setIsWriteOff(false);
         setShowForm(false);
+      } else {
+        const err = await res.json().catch(() => null);
+        setActionMessage(err?.error || "Failed to add recurring payment");
       }
     } catch (error) {
       console.error("Failed to add recurring payment:", error);
+      setActionMessage("Failed to add recurring payment");
     }
   };
 
@@ -110,6 +126,7 @@ export default function RecurringPage() {
   const handlePay = async (paymentId: string, dateStr: string) => {
     setPaying(paymentId);
     try {
+      setActionMessage(null);
       const res = await fetch(`/api/recurring/${paymentId}/pay`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -121,13 +138,20 @@ export default function RecurringPage() {
       if (res.ok) {
         setEditing(null);
         setEditAmount("");
-        await Promise.all([refetchRecurring(), refetchTransactions()]);
+        await Promise.all([
+          refetchRecurring(),
+          refetchTransactions(),
+          fetchMonthTransactions(),
+        ]);
       } else {
-        const err = await res.json();
-        console.error(err.error);
+        const err = await res.json().catch(() => null);
+        const message = err?.error || "Failed to log recurring payment";
+        console.error(message);
+        setActionMessage(message);
       }
     } catch (error) {
       console.error("Failed to pay:", error);
+      setActionMessage("Failed to log recurring payment");
     } finally {
       setPaying(null);
     }
@@ -217,6 +241,12 @@ export default function RecurringPage() {
           </div>
         )}
       </div>
+
+      {actionMessage ? (
+        <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-300">
+          {actionMessage}
+        </div>
+      ) : null}
 
       {/* Add form */}
       <AnimatePresence>
