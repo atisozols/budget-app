@@ -53,18 +53,25 @@ export default function ActivityGrid({
   // Build grid: fill real cells, pad with nulls to fill numCols * 7, slice to fit
   const columns = useMemo(() => {
     if (numCols === 0) return [];
-    const totalSlots = numCols * 7;
-    const all: CellData[] = [...realCells];
-    while (all.length < totalSlots) all.push(null);
-    const final =
-      all.length > totalSlots ? all.slice(all.length - totalSlots) : all;
+    const jan1 = new Date(year, 0, 1);
+    const startPad = (jan1.getDay() + 6) % 7;
+    const aligned: CellData[] = [...Array(startPad).fill(null), ...realCells];
 
-    const cols: CellData[][] = [];
-    for (let c = 0; c < numCols; c++) {
-      cols.push(final.slice(c * 7, c * 7 + 7));
+    while (aligned.length % 7 !== 0) {
+      aligned.push(null);
     }
-    return cols;
-  }, [realCells, numCols]);
+
+    const weekColumns: CellData[][] = [];
+    for (let i = 0; i < aligned.length; i += 7) {
+      weekColumns.push(aligned.slice(i, i + 7));
+    }
+
+    while (weekColumns.length < numCols) {
+      weekColumns.push(Array<CellData>(7).fill(null));
+    }
+
+    return weekColumns.slice(-numCols);
+  }, [realCells, numCols, year]);
 
   return (
     <div className="p-4 bg-card rounded-2xl">
