@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Trash2, Repeat, Check, Calendar, FileText } from "lucide-react";
+import { Plus, Trash2, Repeat, Check, Calendar, FileText, Pencil } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 import { TransactionType, RecurringPaymentType, BudgetType } from "@/lib/types";
 import AmountInput from "@/components/AmountInput";
@@ -43,6 +43,8 @@ export default function RecurringPage() {
   const [paying, setPaying] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [editAmount, setEditAmount] = useState("");
+  const [editingConfig, setEditingConfig] = useState<string | null>(null);
+  const [editConfigAmount, setEditConfigAmount] = useState("");
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   const fetchMonthTransactions = useCallback(async () => {
@@ -74,7 +76,14 @@ export default function RecurringPage() {
     }
   });
 
-  const activePayments = payments.filter((p) => p.isActive);
+  // Last day of the selected month
+  const selectedMonthEnd = new Date(year, month, 0); // day 0 of next month = last day of this month
+  const activePayments = payments.filter((p) => {
+    if (!p.isActive) return false;
+    // Only show payments that started on or before the selected month
+    const start = p.startDate ? new Date(p.startDate) : new Date(2026, 0, 1);
+    return start <= selectedMonthEnd;
+  });
   const paidTotal = activePayments
     .filter((p) => paidMap.has(p._id))
     .reduce((s, p) => s + p.amount, 0);
@@ -121,6 +130,7 @@ export default function RecurringPage() {
   const startEditing = (payment: RecurringPaymentType) => {
     setEditing(payment._id);
     setEditAmount(payment.amount.toString());
+    setEditingConfig(null); // close price edit if open
   };
 
   const handlePay = async (paymentId: string, dateStr: string) => {
@@ -154,6 +164,36 @@ export default function RecurringPage() {
       setActionMessage("Failed to log recurring payment");
     } finally {
       setPaying(null);
+    }
+  };
+
+  const startEditingConfig = (payment: RecurringPaymentType) => {
+    setEditingConfig(payment._id);
+    setEditConfigAmount(payment.amount.toString());
+    setEditing(null); // close pay flow if open
+  };
+
+  const handleUpdateConfig = async (paymentId: string) => {
+    const newAmount = parseFloat(editConfigAmount);
+    if (isNaN(newAmount) || newAmount <= 0) return;
+    try {
+      setActionMessage(null);
+      const res = await fetch(`/api/recurring/${paymentId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount: newAmount }),
+      });
+      if (res.ok) {
+        setEditingConfig(null);
+        setEditConfigAmount("");
+        await refetchRecurring();
+      } else {
+        const err = await res.json().catch(() => null);
+        setActionMessage(err?.error || "Failed to update price");
+      }
+    } catch (error) {
+      console.error("Failed to update recurring payment config:", error);
+      setActionMessage("Failed to update price");
     }
   };
 
@@ -386,12 +426,21 @@ export default function RecurringPage() {
                       <Check className="w-4 h-4 text-emerald-400" />
                     </div>
                   ) : (
-                    <button
-                      onClick={() => handleDelete(payment._id)}
-                      className="p-1.5 text-muted-foreground hover:text-destructive transition-colors shrink-0"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={() => startEditingConfig(payment)}
+                        className="p-1.5 text-muted-foreground hover:text-primary transition-colors"
+                        title="Edit price"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(payment._id)}
+                        className="p-1.5 text-muted-foreground hover:text-destructive transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   )}
                 </div>
 
@@ -406,6 +455,36 @@ export default function RecurringPage() {
                           month: "short",
                         })}`
                       : ""}
+                  </div>
+                ) : editingConfig === payment._id ? (
+                  <div className="mt-2 pl-12 space-y-2">
+                    <div className="text-xs text-muted-foreground">
+                      Update default price (won&apos;t affect past payments)
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-muted-foreground">€</span>
+                      <AmountInput
+                        value={editConfigAmount}
+                        onChange={setEditConfigAmount}
+                        className="flex-1 p-1.5 bg-secondary rounded-lg text-sm"
+                        autoFocus
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleUpdateConfig(payment._id)}
+                        disabled={!editConfigAmount || parseFloat(editConfigAmount) <= 0}
+                        className="flex-1 py-1.5 bg-primary/20 text-primary rounded-lg text-xs font-medium disabled:opacity-50"
+                      >
+                        Save Price
+                      </button>
+                      <button
+                        onClick={() => setEditingConfig(null)}
+                        className="px-3 py-1.5 bg-secondary text-muted-foreground rounded-lg text-xs font-medium hover:text-foreground transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
                   </div>
                 ) : editing === payment._id ? (
                   <div className="mt-2 pl-12 space-y-2">

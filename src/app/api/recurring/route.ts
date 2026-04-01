@@ -51,6 +51,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Default startDate to first day of current month for new payments
+    if (!body.startDate) {
+      const now = new Date();
+      body.startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    }
+
     const payment = await RecurringPayment.create({
       ...body,
       userId,

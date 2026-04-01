@@ -80,14 +80,13 @@ export async function POST(request: NextRequest) {
       categoryId: category._id,
     });
 
-    // Auto-reduce debt when a debt payment is logged
-    if (payload.debtPayment) {
-      const field =
-        payload.debtPayment === "tax" ? "taxDebt" : "creditDebt";
+    // Auto-reduce credit debt when a credit debt payment is logged
+    // (Tax debt is tracked separately via calculated tax obligations)
+    if (payload.debtPayment === "credit") {
       await Settings.findOneAndUpdate(
         { userId },
         {
-          $inc: { [field]: -transaction.amount },
+          $inc: { creditDebt: -transaction.amount },
           $setOnInsert: { userId },
         },
         {

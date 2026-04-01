@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 const COOKIE_NAME = "budget-auth";
 
 const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/auth/logout"];
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Allow public paths, static assets, and Next.js internals

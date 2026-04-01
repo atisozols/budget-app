@@ -60,9 +60,8 @@ export default function Home() {
   // ─── Derived balance from calibration ─────────────────────────────
   const calibratedBalance = settings?.currentBalance || 0;
   const balanceDateValue = settings?.balanceDate;
-  const taxDebt = settings?.taxDebt || 0;
+  const extraTaxDebt = settings?.taxDebt || 0; // manually calibrated current tax debt
   const creditDebt = settings?.creditDebt || 0;
-  const totalDebt = taxDebt + creditDebt;
 
   const sorted = useMemo(
     () =>
@@ -154,6 +153,23 @@ export default function Home() {
     balanceLineData.length > 0
       ? balanceLineData[balanceLineData.length - 1].balance
       : calibratedBalance;
+
+  // ─── Tax obligation: calibrated debt minus payments since calibration ─
+  const taxDebtDate = settings?.taxDebtDate ? new Date(settings.taxDebtDate) : null;
+  const totalTaxPayments = useMemo(
+    () =>
+      transactions
+        .filter((t) => {
+          if (t.debtPayment !== "tax") return false;
+          if (!taxDebtDate) return true;
+          return new Date(t.date) >= taxDebtDate;
+        })
+        .reduce((s, t) => s + t.amount, 0),
+    [transactions, taxDebtDate],
+  );
+  // Net tax = manually calibrated debt - tax payments made since calibration date
+  const netTaxObligation = Math.max(0, extraTaxDebt - totalTaxPayments);
+  const totalDebt = netTaxObligation + creditDebt;
   const aboveWater = currentDerivedBalance - totalDebt;
 
   // ─── Daily spend bars (last NUM_BARS days) ─────────────────────────
@@ -656,10 +672,15 @@ export default function Home() {
                 )}
               </div>
               <div>
-                <span className="text-muted-foreground">Tax Debt</span>
+                <span className="text-muted-foreground">Tax Obligation</span>
                 <div className="font-medium text-red-400">
-                  {formatCurrency(taxDebt)}
+                  {formatCurrency(netTaxObligation)}
                 </div>
+                {totalTaxPayments > 0 && (
+                  <div className="text-[9px] text-muted-foreground/50">
+                    -{formatCurrency(totalTaxPayments)} paid
+                  </div>
+                )}
               </div>
               <div>
                 <span className="text-muted-foreground">Credit Debt</span>

@@ -35,6 +35,7 @@ export interface RecurringPaymentType {
   isActive: boolean;
   budgetType: "needs" | "wants" | "savings";
   isWriteOff: boolean;
+  startDate?: string;
 }
 
 export interface SettingsType {

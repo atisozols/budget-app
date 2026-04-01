@@ -1,19 +1,20 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   Calculator,
-  AlertTriangle,
   TrendingDown,
   CreditCard,
 } from "lucide-react";
 import { formatCurrency, calculateSelfEmployedTaxes } from "@/lib/utils";
 import { useAppData } from "@/lib/AppDataContext";
-import { format } from "date-fns";
 
 export default function TaxesPage() {
-  const { transactions: allTxs, settings, year } = useAppData();
+  const { transactions: contextTxs, settings, year: contextYear } = useAppData();
+  const currentYear = new Date().getFullYear();
+  const [selectedYear, setSelectedYear] = useState(contextYear);
+  const [yearTransactions, setYearTransactions] = useState(contextTxs);
   const [selectedQuarter, setSelectedQuarter] = useState(() => {
     const m = new Date().getMonth();
     if (m < 3) return 1;
@@ -21,6 +22,21 @@ export default function TaxesPage() {
     if (m < 9) return 3;
     return 4;
   });
+
+  // Fetch transactions for selected year when it differs from the context year
+  useEffect(() => {
+    if (selectedYear === contextYear) {
+      setYearTransactions(contextTxs);
+      return;
+    }
+    fetch(`/api/transactions?year=${selectedYear}`)
+      .then((r) => r.json())
+      .then(setYearTransactions)
+      .catch((e) => console.error("Failed to fetch tax year transactions:", e));
+  }, [selectedYear, contextYear, contextTxs]);
+
+  const allTxs = yearTransactions;
+  const year = selectedYear;
 
   function getQuarterMonths(q: number): number[] {
     const start = (q - 1) * 3 + 1;
@@ -48,31 +64,6 @@ export default function TaxesPage() {
   const iinRate = settings?.iinRate || 25.5;
   const vsaoiRate = settings?.vsaoiRate || 31.07;
 
-  // Tax debt consolidation logic (Latvian March 1 cycle)
-  // calibratedTaxDebt is the debt recorded in settings at taxDebtDate
-  const calibratedTaxDebt = settings?.taxDebt || 0;
-  const taxDebtDate = settings?.taxDebtDate
-    ? new Date(settings.taxDebtDate)
-    : null;
-
-  // Sum all tax debt payments made since the calibration date
-  const taxPaymentsSinceCalibration = useMemo(() => {
-    if (!taxDebtDate) return 0;
-    return allTxs
-      .filter((t) => {
-        if (t.debtPayment !== "tax") return false;
-        const d = new Date(t.date);
-        return d >= taxDebtDate;
-      })
-      .reduce((s, t) => s + t.amount, 0);
-  }, [allTxs, taxDebtDate]);
-
-  // Current tax debt = calibrated - payments since calibration
-  const currentTaxDebt = Math.max(
-    0,
-    calibratedTaxDebt - taxPaymentsSinceCalibration,
-  );
-
   // Latvian tax cycle info: annual tax declaration due March 1
   // Tax year = previous calendar year. Debt from previous year finalizes March 1.
   const now = new Date();
@@ -98,12 +89,6 @@ export default function TaxesPage() {
 
   const brutoItems = transactions.filter(
     (t) => t.type === "income" && t.incomeType === "bruto",
-  );
-
-  // Tax payments in current year (for display)
-  const yearTaxPayments = useMemo(
-    () => allTxs.filter((t) => t.debtPayment === "tax"),
-    [allTxs],
   );
 
   const containerVariants = {
@@ -135,6 +120,24 @@ export default function TaxesPage() {
         </p>
       </div>
 
+      {/* Year Selector */}
+      <div className="flex gap-2 items-center">
+        {[currentYear - 1, currentYear].map((y) => (
+          <button
+            key={y}
+            onClick={() => setSelectedYear(y)}
+            className={`px-4 py-1.5 rounded-xl text-sm font-medium transition-all ${
+              selectedYear === y
+                ? "bg-primary/20 text-primary ring-1 ring-primary/50"
+                : "bg-secondary text-muted-foreground"
+            }`}
+          >
+            {y}
+          </button>
+        ))}
+        <span className="text-xs text-muted-foreground ml-1">Tax Year</span>
+      </div>
+
       {/* Quarter Selector */}
       <div className="flex gap-2">
         {[1, 2, 3, 4].map((q) => (
@@ -151,40 +154,6 @@ export default function TaxesPage() {
           </button>
         ))}
       </div>
-
-      {/* Tax Debt Consolidation */}
-      {(currentTaxDebt > 0 || calibratedTaxDebt > 0) && (
-        <motion.div
-          variants={itemVariants}
-          className="p-4 bg-red-500/5 border border-red-500/20 rounded-2xl space-y-2"
-        >
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-red-400" />
-            <span className="text-sm font-medium">Tax Debt</span>
-          </div>
-          <div className="text-2xl font-bold text-red-400">
-            {formatCurrency(currentTaxDebt)}
-          </div>
-          <div className="space-y-1 text-xs text-muted-foreground">
-            <div className="flex justify-between">
-              <span>Calibrated debt</span>
-              <span>{formatCurrency(calibratedTaxDebt)}</span>
-            </div>
-            {taxDebtDate && (
-              <div className="flex justify-between">
-                <span>Set on</span>
-                <span>{format(taxDebtDate, "MMM d, yyyy")}</span>
-              </div>
-            )}
-            <div className="flex justify-between">
-              <span>Payments since</span>
-              <span className="text-emerald-400">
-                -{formatCurrency(taxPaymentsSinceCalibration)}
-              </span>
-            </div>
-          </div>
-        </motion.div>
-      )}
 
       {/* Latvian Tax Cycle */}
       {isBeforeDeadline && (
@@ -298,15 +267,14 @@ export default function TaxesPage() {
         <div className="flex items-center gap-2 mb-2">
           <TrendingDown className="w-4 h-4 text-red-400" />
           <span className="text-sm font-medium text-muted-foreground">
-            Total Tax Obligations
+            Total Tax Obligations (Q{selectedQuarter})
           </span>
         </div>
         <div className="text-2xl font-bold text-red-400">
-          {formatCurrency(taxCalc.totalTax + currentTaxDebt)}
+          {formatCurrency(taxCalc.totalTax)}
         </div>
-        <div className="flex gap-4 mt-1 text-xs text-muted-foreground">
-          <span>Current quarter: {formatCurrency(taxCalc.totalTax)}</span>
-          <span>Existing debt: {formatCurrency(currentTaxDebt)}</span>
+        <div className="mt-2 text-xs text-muted-foreground/70">
+          Approximate — set your real tax debt in Settings.
         </div>
       </motion.div>
 

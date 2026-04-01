@@ -10,6 +10,7 @@ export interface IRecurringPayment extends Document {
   isActive: boolean;
   budgetType: "needs" | "wants" | "savings";
   isWriteOff: boolean;
+  startDate: Date;
   createdAt: Date;
 }
 
@@ -31,6 +32,7 @@ const RecurringPaymentSchema = new Schema<IRecurringPayment>({
   dueDay: { type: Number, default: 1, min: 1, max: 31 },
   isActive: { type: Boolean, default: true },
   isWriteOff: { type: Boolean, default: false },
+  startDate: { type: Date, default: () => new Date(2026, 0, 1) },
   budgetType: {
     type: String,
     enum: ["needs", "wants", "savings"],
