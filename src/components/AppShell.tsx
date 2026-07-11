@@ -7,18 +7,10 @@ import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
 import LoadingGate from "@/components/LoadingGate";
 import MonthSwitcher from "@/components/MonthSwitcher";
 import Navigation from "@/components/Navigation";
-import UserGreeting from "@/components/UserGreeting";
-import type { SessionUser } from "@/lib/auth";
 
 const BARE_PATHS = ["/login"];
 
-export default function AppShell({
-  children,
-  user,
-}: {
-  children: React.ReactNode;
-  user: SessionUser | null;
-}) {
+export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const showFloatingAdd = pathname !== "/settings";
 
@@ -37,9 +29,6 @@ export default function AppShell({
               paddingTop: "calc(env(safe-area-inset-top, 0px) + 0.75rem)",
             }}
           >
-            {user && pathname === "/" ? (
-              <UserGreeting name={user.name} />
-            ) : null}
             <MonthSwitcher />
             <main
               className="flex-1"

@@ -30,6 +30,16 @@ import { format } from "date-fns";
 import ActivityGrid from "@/components/ActivityGrid";
 import BudgetDonut from "@/components/BudgetDonut";
 import SpendStreakCard from "@/components/SpendStreakCard";
+import CategoryTrendsCard from "@/components/CategoryTrendsCard";
+import MonthForecastCard from "@/components/MonthForecastCard";
+import WeeklyDigestCard from "@/components/WeeklyDigestCard";
+import HealthScoreCard from "@/components/HealthScoreCard";
+import {
+  computeCategoryTrends,
+  computeMonthForecast,
+  computeWeeklyDigest,
+  computeHealthScore,
+} from "@/lib/insights";
 import { normalizeHomeCards, type HomeCardId } from "@/lib/homeCards";
 import {
   buildSpendWidgetDailySeries,
@@ -54,7 +64,7 @@ const MONTH_SHORT = [
 ];
 
 export default function Home() {
-  const { transactions, settings, year } = useAppData();
+  const { transactions, settings, recurring, year } = useAppData();
   const [selectedBarIdx, setSelectedBarIdx] = useState<number | null>(null);
 
   // ─── Derived balance from calibration ─────────────────────────────
@@ -95,7 +105,9 @@ export default function Home() {
   // Compute balance at Jan 1 from calibration point
   const balanceAtJan1 = useMemo(() => {
     const jan1 = new Date(year, 0, 1);
-    const balanceDate = balanceDateValue ? new Date(balanceDateValue) : new Date();
+    const balanceDate = balanceDateValue
+      ? new Date(balanceDateValue)
+      : new Date();
     let delta = 0;
     for (const tx of sorted) {
       const d = new Date(tx.date);
@@ -155,7 +167,9 @@ export default function Home() {
       : calibratedBalance;
 
   // ─── Tax obligation: calibrated debt minus payments since calibration ─
-  const taxDebtDate = settings?.taxDebtDate ? new Date(settings.taxDebtDate) : null;
+  const taxDebtDate = settings?.taxDebtDate
+    ? new Date(settings.taxDebtDate)
+    : null;
   const totalTaxPayments = useMemo(
     () =>
       transactions
@@ -211,7 +225,8 @@ export default function Home() {
         currentStreak++;
       }
 
-      const latestDay = spendWidgetDailySeries[spendWidgetDailySeries.length - 1];
+      const latestDay =
+        spendWidgetDailySeries[spendWidgetDailySeries.length - 1];
 
       return {
         todaySpend: latestDay?.isToday ? latestDay.spend : 0,
@@ -340,10 +355,62 @@ export default function Home() {
     show: { opacity: 1, y: 0 },
   };
 
+  // ─── Insight cards ─────────────────────────────────────────────────
+  const categoryTrends = useMemo(
+    () => computeCategoryTrends(transactions),
+    [transactions],
+  );
+  const monthForecast = useMemo(
+    () => computeMonthForecast(transactions, recurring),
+    [transactions, recurring],
+  );
+  const weeklyDigest = useMemo(
+    () => computeWeeklyDigest(transactions, spendWidgetDailySeries),
+    [transactions, spendWidgetDailySeries],
+  );
+  const health = useMemo(
+    () =>
+      computeHealthScore({
+        transactions,
+        dailySeries: spendWidgetDailySeries,
+        totalDebt,
+      }),
+    [transactions, spendWidgetDailySeries, totalDebt],
+  );
+
   const orderedHomeCards = normalizeHomeCards(settings?.homeCards);
 
   const renderCard = (cardId: HomeCardId) => {
     switch (cardId) {
+      case "health-score":
+        return (
+          <motion.div key={cardId} variants={itemVariants}>
+            <HealthScoreCard health={health} />
+          </motion.div>
+        );
+
+      case "month-forecast":
+        return (
+          <motion.div key={cardId} variants={itemVariants}>
+            <MonthForecastCard forecast={monthForecast} />
+          </motion.div>
+        );
+
+      case "category-trends":
+        if (categoryTrends.length === 0) return null;
+        return (
+          <motion.div key={cardId} variants={itemVariants}>
+            <CategoryTrendsCard trends={categoryTrends} />
+          </motion.div>
+        );
+
+      case "weekly-digest":
+        return (
+          <motion.div key={cardId} variants={itemVariants}>
+            <WeeklyDigestCard digest={weeklyDigest} />
+          </motion.div>
+        );
+
       case "spend-streak":
         return (
           <motion.div key={cardId} variants={itemVariants}>
@@ -397,7 +464,10 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="flex items-end gap-[3px] mt-3" style={{ height: 110 }}>
+            <div
+              className="flex items-end gap-[3px] mt-3"
+              style={{ height: 110 }}
+            >
               {dailyBars.map((bar, i) => {
                 const heightPct =
                   bar.spend > 0 ? (bar.spend / maxSpend) * 65 + 5 : 2;
@@ -489,7 +559,9 @@ export default function Home() {
                           </span>
                           <div className="flex-1 min-w-0">
                             <div className="text-xs font-medium truncate">
-                              {tx.description || tx.categoryId?.name || "Unknown"}
+                              {tx.description ||
+                                tx.categoryId?.name ||
+                                "Unknown"}
                             </div>
                             <div className="text-[10px] text-muted-foreground">
                               {tx.categoryId?.name}
@@ -585,7 +657,13 @@ export default function Home() {
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={averageDailySpendData}>
                   <defs>
-                    <linearGradient id="avgSpendGrad" x1="0" y1="0" x2="0" y2="1">
+                    <linearGradient
+                      id="avgSpendGrad"
+                      x1="0"
+                      y1="0"
+                      x2="0"
+                      y2="1"
+                    >
                       <stop offset="0%" stopColor="#f97316" stopOpacity={0.3} />
                       <stop offset="100%" stopColor="#f97316" stopOpacity={0} />
                     </linearGradient>
@@ -789,21 +867,27 @@ export default function Home() {
           >
             <div className="p-3 bg-card rounded-2xl text-center">
               <TrendingUp className="w-4 h-4 text-emerald-400 mx-auto mb-1" />
-              <div className="text-[10px] text-muted-foreground">Year Income</div>
+              <div className="text-[10px] text-muted-foreground">
+                Year Income
+              </div>
               <div className="text-sm font-bold text-emerald-400">
                 {formatCurrency(yearIncome)}
               </div>
             </div>
             <div className="p-3 bg-card rounded-2xl text-center">
               <TrendingDown className="w-4 h-4 text-red-400 mx-auto mb-1" />
-              <div className="text-[10px] text-muted-foreground">Year Expense</div>
+              <div className="text-[10px] text-muted-foreground">
+                Year Expense
+              </div>
               <div className="text-sm font-bold text-red-400">
                 {formatCurrency(yearExpense)}
               </div>
             </div>
             <div className="p-3 bg-card rounded-2xl text-center">
               <Wallet className="w-4 h-4 text-primary mx-auto mb-1" />
-              <div className="text-[10px] text-muted-foreground">Savings Rate</div>
+              <div className="text-[10px] text-muted-foreground">
+                Savings Rate
+              </div>
               <div
                 className={`text-sm font-bold ${savingsRate >= 0 ? "text-emerald-400" : "text-red-400"}`}
               >
@@ -845,9 +929,13 @@ export default function Home() {
             </div>
             <div className="space-y-2">
               {sortedCategories.map((cat) => {
-                const pct = yearExpense > 0 ? (cat.amount / yearExpense) * 100 : 0;
+                const pct =
+                  yearExpense > 0 ? (cat.amount / yearExpense) * 100 : 0;
                 return (
-                  <div key={cat.name} className="flex items-center gap-3 text-sm">
+                  <div
+                    key={cat.name}
+                    className="flex items-center gap-3 text-sm"
+                  >
                     <span
                       className="w-8 h-8 rounded-lg flex items-center justify-center text-sm shrink-0"
                       style={{ backgroundColor: cat.color + "20" }}

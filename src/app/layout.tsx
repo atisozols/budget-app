@@ -2,7 +2,6 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import AppShell from "@/components/AppShell";
-import { getSession } from "@/lib/auth";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -33,13 +32,11 @@ export const viewport: Viewport = {
   themeColor: "#09090b",
 };
 
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const session = await getSession();
-
   return (
     <html
       lang="en"
@@ -50,7 +47,7 @@ export default async function RootLayout({
         className="flex flex-col bg-background text-foreground"
         style={{ minHeight: "100dvh" }}
       >
-        <AppShell user={session}>{children}</AppShell>
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   );

@@ -1,5 +1,9 @@
 export type HomeCardId =
+  | "health-score"
   | "spend-streak"
+  | "month-forecast"
+  | "category-trends"
+  | "weekly-digest"
   | "activity-grid"
   | "last7-spend"
   | "average-daily-spend"
@@ -24,9 +28,30 @@ export interface HomeCardDefinition {
 
 export const HOME_CARD_DEFINITIONS: HomeCardDefinition[] = [
   {
+    id: "health-score",
+    title: "Financial Health",
+    description:
+      "Composite score from income, spend trend, savings, debt, and budget",
+  },
+  {
     id: "spend-streak",
     title: "Spend Streak",
     description: "Today's spend, target, and below-average streaks",
+  },
+  {
+    id: "month-forecast",
+    title: "Month Forecast",
+    description: "Projected month-end spend at current pace vs last month",
+  },
+  {
+    id: "category-trends",
+    title: "Category Trends",
+    description: "Top 5 biggest category changes vs last month",
+  },
+  {
+    id: "weekly-digest",
+    title: "Weekly Digest",
+    description: "Last 7 days summary with best/worst day and top category",
   },
   {
     id: "activity-grid",
@@ -80,13 +105,10 @@ export const HOME_CARD_DEFINITIONS: HomeCardDefinition[] = [
   },
 ];
 
-export const DEFAULT_HOME_CARDS: HomeCardPreference[] = HOME_CARD_DEFINITIONS.map(
-  ({ id }) => ({ id, enabled: true }),
-);
+export const DEFAULT_HOME_CARDS: HomeCardPreference[] =
+  HOME_CARD_DEFINITIONS.map(({ id }) => ({ id, enabled: true }));
 
-export function normalizeHomeCards(
-  value: unknown,
-): HomeCardPreference[] {
+export function normalizeHomeCards(value: unknown): HomeCardPreference[] {
   const validIds = new Set(HOME_CARD_DEFINITIONS.map((card) => card.id));
   const source = Array.isArray(value) ? value : [];
   const seen = new Set<HomeCardId>();
@@ -96,7 +118,10 @@ export function normalizeHomeCards(
     if (!item || typeof item !== "object") continue;
 
     const record = item as { id?: unknown; enabled?: unknown };
-    if (typeof record.id !== "string" || !validIds.has(record.id as HomeCardId)) {
+    if (
+      typeof record.id !== "string" ||
+      !validIds.has(record.id as HomeCardId)
+    ) {
       continue;
     }
 
