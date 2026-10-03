@@ -6,8 +6,10 @@ export interface CategoryType {
   emoji: string;
   color: string;
   type: "expense" | "income";
-  budgetType: "needs" | "wants" | "savings";
+  budgetType: BudgetType;
   isDefault: boolean;
+  parentId?: string | null;
+  isTax?: boolean;
 }
 
 export interface TransactionType {
@@ -22,6 +24,7 @@ export interface TransactionType {
   isWriteOff: boolean;
   recurringPaymentId?: string;
   debtPayment?: "tax" | "credit";
+  taxYear?: number;
   createdAt: string;
 }
 
@@ -33,7 +36,7 @@ export interface RecurringPaymentType {
   frequency: "monthly" | "quarterly" | "yearly";
   dueDay: number;
   isActive: boolean;
-  budgetType: "needs" | "wants" | "savings";
+  budgetType: BudgetType;
   isWriteOff: boolean;
   startDate?: string;
 }
@@ -48,9 +51,31 @@ export interface SettingsType {
   creditDebtDate: string;
   incomeTags: string[];
   vsaoiRate: number;
+  vsaoiPensionRate: number;
+  vsaoiThreshold: number;
   iinRate: number;
   homeCards: HomeCardPreference[];
+  savingsGoal: number;
+  savingsStartMonth?: string;
+  budgets: BudgetEntry[];
+  quickPicks: QuickPick[];
 }
 
-export type BudgetType = "needs" | "wants" | "savings";
+/** A pinned shortcut in the add-transaction sheet. */
+export interface QuickPick {
+  categoryId: string;
+  description?: string;
+  isWriteOff?: boolean;
+  incomeType?: "bruto" | "neto";
+}
+
+export interface BudgetEntry {
+  categoryId: string;
+  amount: number;
+}
+
+// "obligations" covers money that isn't lifestyle spending (taxes, debt
+// repayment). "savings" is kept for categories created before savings became
+// a goal instead of a transaction.
+export type BudgetType = "needs" | "wants" | "savings" | "obligations";
 export type IncomeType = "bruto" | "neto";

@@ -3,6 +3,7 @@ import { connectToDatabase } from "@/lib/mongodb";
 import RecurringPayment from "@/lib/models/RecurringPayment";
 import Transaction from "@/lib/models/Transaction";
 import { getUserId } from "@/lib/auth";
+import { parseTransactionDate } from "@/lib/transactionPayload";
 
 export async function POST(
   request: NextRequest,
@@ -28,22 +29,23 @@ export async function POST(
       );
     }
 
-    // Check if already paid this month
-    const payDate = new Date(date);
-    const monthStart = new Date(payDate.getFullYear(), payDate.getMonth(), 1);
-    const monthEnd = new Date(
-      payDate.getFullYear(),
-      payDate.getMonth() + 1,
-      0,
-      23,
-      59,
-      59,
+    const payDate = parseTransactionDate(date);
+    if (!payDate) {
+      return NextResponse.json({ error: "Invalid date" }, { status: 400 });
+    }
+
+    // Check if already paid this month (stored dates are UTC midnight)
+    const monthStart = new Date(
+      Date.UTC(payDate.getUTCFullYear(), payDate.getUTCMonth(), 1),
+    );
+    const nextMonthStart = new Date(
+      Date.UTC(payDate.getUTCFullYear(), payDate.getUTCMonth() + 1, 1),
     );
 
     const existing = await Transaction.findOne({
       userId,
       recurringPaymentId: id,
-      date: { $gte: monthStart, $lte: monthEnd },
+      date: { $gte: monthStart, $lt: nextMonthStart },
     });
 
     if (existing) {

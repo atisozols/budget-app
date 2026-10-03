@@ -1,600 +1,296 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import {
-  ArrowDown,
-  ArrowUp,
-  ArrowDownCircle,
-  TrendingUp,
-  TrendingDown,
-  Wallet,
-  Anchor,
-  AlertTriangle,
-  X,
-} from "lucide-react";
+import { useMemo } from "react";
+import Link from "next/link";
+import { motion } from "framer-motion";
+import { Anchor, AlertTriangle, Target, Wallet } from "lucide-react";
 import {
   AreaChart,
   Area,
-  BarChart,
-  Bar,
   XAxis,
   YAxis,
   ReferenceLine,
   ResponsiveContainer,
   CartesianGrid,
 } from "recharts";
-import { formatCurrency } from "@/lib/utils";
-import { useAppData } from "@/lib/AppDataContext";
 import { format } from "date-fns";
-import ActivityGrid from "@/components/ActivityGrid";
-import BudgetDonut from "@/components/BudgetDonut";
-import SpendStreakCard from "@/components/SpendStreakCard";
-import CategoryTrendsCard from "@/components/CategoryTrendsCard";
-import MonthForecastCard from "@/components/MonthForecastCard";
-import WeeklyDigestCard from "@/components/WeeklyDigestCard";
-import HealthScoreCard from "@/components/HealthScoreCard";
+import { cn, formatCurrency } from "@/lib/utils";
+import { useAppData } from "@/lib/AppDataContext";
+import {
+  useCreditDebt,
+  useSpendable,
+  useTaxYear,
+} from "@/lib/useFinance";
+import { normalizeHomeCards, type HomeCardId } from "@/lib/homeCards";
 import {
   computeCategoryTrends,
   computeMonthForecast,
-  computeWeeklyDigest,
   computeHealthScore,
 } from "@/lib/insights";
-import { normalizeHomeCards, type HomeCardId } from "@/lib/homeCards";
-import {
-  buildSpendWidgetDailySeries,
-  isSpendWidgetExpense,
-  toLocalDateKey,
-} from "@/lib/spendInsights";
+import { buildSpendWidgetDailySeries } from "@/lib/spendInsights";
+import { budgetProgress } from "@/lib/budgets";
+import { balanceSeries, currentBalance } from "@/lib/balance";
+import { categoryLabel } from "@/lib/categories";
+import { logicalToday } from "@/lib/dates";
+import SpendableCard from "@/components/SpendableCard";
+import DailySpendCard from "@/components/DailySpendCard";
+import ActivityGrid from "@/components/ActivityGrid";
+import CategoryTrendsCard from "@/components/CategoryTrendsCard";
+import MonthForecastCard from "@/components/MonthForecastCard";
+import HealthScoreCard from "@/components/HealthScoreCard";
 
-const NUM_BARS = 14;
-const MONTH_SHORT = [
-  "Jan",
-  "Feb",
-  "Mar",
-  "Apr",
-  "May",
-  "Jun",
-  "Jul",
-  "Aug",
-  "Sep",
-  "Oct",
-  "Nov",
-  "Dec",
-];
+const itemVariants = {
+  hidden: { opacity: 0, y: 20 },
+  show: { opacity: 1, y: 0 },
+};
+
+function BudgetsSummary() {
+  const { settings, allTransactions, categoryIndex } = useAppData();
+  const progress = useMemo(
+    () =>
+      budgetProgress(settings?.budgets ?? [], allTransactions, categoryIndex)
+        .sort((a, b) => b.spent / b.budget - a.spent / a.budget)
+        .slice(0, 4),
+    [settings, allTransactions, categoryIndex],
+  );
+  const today = logicalToday();
+  const monthProgress =
+    today.getDate() /
+    new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+
+  if (progress.length === 0) {
+    return (
+      <Link
+        href="/plan"
+        className="flex items-center gap-3 rounded-2xl border border-dashed border-border p-4"
+      >
+        <Target className="h-5 w-5 shrink-0 text-primary" />
+        <div>
+          <div className="text-sm font-medium">Set budgets for a few categories</div>
+          <div className="text-xs text-muted-foreground">
+            Plan → Budgets shows what you usually spend in each one
+          </div>
+        </div>
+      </Link>
+    );
+  }
+
+  return (
+    <Link href="/plan" className="block rounded-2xl bg-card p-4">
+      <div className="mb-3 text-[10px] uppercase tracking-wider text-muted-foreground">
+        Budgets this month
+      </div>
+      <div className="space-y-2.5">
+        {progress.map((p) => {
+          const category = categoryIndex.byId.get(p.categoryId);
+          if (!category) return null;
+          return (
+            <div key={p.categoryId}>
+              <div className="mb-1 flex items-baseline justify-between gap-2 text-xs">
+                <span className="truncate">
+                  {category.emoji} {categoryLabel(category, categoryIndex)}
+                </span>
+                <span className="shrink-0 tabular-nums">
+                  <span
+                    className={cn(
+                      p.status === "over"
+                        ? "text-red-400"
+                        : p.status === "watch"
+                          ? "text-amber-400"
+                          : "text-foreground",
+                    )}
+                  >
+                    {formatCurrency(p.spent)}
+                  </span>
+                  <span className="text-muted-foreground">
+                    {" "}
+                    / {formatCurrency(p.budget)}
+                  </span>
+                </span>
+              </div>
+              <div className="relative h-1.5 overflow-hidden rounded-full bg-secondary">
+                <div
+                  className={cn(
+                    "h-full rounded-full",
+                    p.status === "over"
+                      ? "bg-red-500"
+                      : p.status === "watch"
+                        ? "bg-amber-500"
+                        : "bg-emerald-500",
+                  )}
+                  style={{ width: `${Math.min((p.spent / p.budget) * 100, 100)}%` }}
+                />
+                <div
+                  className="absolute top-0 h-full w-0.5 bg-foreground/60"
+                  style={{ left: `${monthProgress * 100}%` }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </Link>
+  );
+}
 
 export default function Home() {
-  const { transactions, settings, recurring, year } = useAppData();
-  const [selectedBarIdx, setSelectedBarIdx] = useState<number | null>(null);
+  const {
+    allTransactions,
+    transactions,
+    settings,
+    recurring,
+    categoryIndex,
+    year,
+  } = useAppData();
+  const spendable = useSpendable();
+  const tax = useTaxYear(year);
+  const credit = useCreditDebt();
 
-  // ─── Derived balance from calibration ─────────────────────────────
-  const calibratedBalance = settings?.currentBalance || 0;
-  const balanceDateValue = settings?.balanceDate;
-  const extraTaxDebt = settings?.taxDebt || 0; // manually calibrated current tax debt
-  const creditDebt = settings?.creditDebt || 0;
+  const balance = useMemo(
+    () => currentBalance(allTransactions, settings),
+    [allTransactions, settings],
+  );
+  const taxToPay = Math.max(0, tax.outstanding);
+  const totalDebt = taxToPay + credit.outstanding;
+  const aboveWater = balance - totalDebt;
 
-  const sorted = useMemo(
-    () =>
-      [...transactions].sort(
-        (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
-      ),
-    [transactions],
-  );
-  const spendWidgetTransactions = useMemo(
-    () => transactions.filter(isSpendWidgetExpense),
-    [transactions],
-  );
-  const spendWidgetTransactionsByDate = useMemo(() => {
-    const grouped = new Map<string, typeof transactions>();
-    for (const transaction of spendWidgetTransactions) {
-      const key = toLocalDateKey(new Date(transaction.date));
-      const bucket = grouped.get(key);
-      if (bucket) {
-        bucket.push(transaction);
-      } else {
-        grouped.set(key, [transaction]);
-      }
-    }
-    return grouped;
-  }, [spendWidgetTransactions]);
-  const spendWidgetDailySeries = useMemo(
+  const series = useMemo(
     () => buildSpendWidgetDailySeries(transactions, year),
     [transactions, year],
   );
-
-  // Compute balance at Jan 1 from calibration point
-  const balanceAtJan1 = useMemo(() => {
-    const jan1 = new Date(year, 0, 1);
-    const balanceDate = balanceDateValue
-      ? new Date(balanceDateValue)
-      : new Date();
-    let delta = 0;
-    for (const tx of sorted) {
-      const d = new Date(tx.date);
-      if (d < jan1) continue;
-      if (d > balanceDate) break;
-      delta += tx.type === "income" ? tx.amount : -tx.amount;
-    }
-    return calibratedBalance - delta;
-  }, [sorted, calibratedBalance, balanceDateValue, year]);
-
-  // Balance line chart data (daily running balance)
-  const balanceLineData = useMemo(() => {
-    const points: { date: string; balance: number; label: string }[] = [];
-    let running = balanceAtJan1;
-
-    const byDate = new Map<string, number>();
-    for (const tx of sorted) {
-      const key = new Date(tx.date).toISOString().split("T")[0];
-      byDate.set(
-        key,
-        (byDate.get(key) || 0) +
-          (tx.type === "income" ? tx.amount : -tx.amount),
-      );
-    }
-
-    const jan1Key = `${year}-01-01`;
-    if (!byDate.has(jan1Key)) {
-      points.push({ date: jan1Key, balance: running, label: "Jan 1" });
-    }
-
-    const sortedDates = [...byDate.keys()].sort();
-    for (const dateKey of sortedDates) {
-      running += byDate.get(dateKey)!;
-      const d = new Date(dateKey);
-      points.push({
-        date: dateKey,
-        balance: Math.round(running * 100) / 100,
-        label: `${MONTH_SHORT[d.getMonth()]} ${d.getDate()}`,
-      });
-    }
-
-    const todayKey = new Date().toISOString().split("T")[0];
-    if (
-      year === new Date().getFullYear() &&
-      !byDate.has(todayKey) &&
-      sortedDates.length > 0
-    ) {
-      points.push({ date: todayKey, balance: running, label: "Today" });
-    }
-
-    return points;
-  }, [sorted, balanceAtJan1, year]);
-
-  const currentDerivedBalance =
-    balanceLineData.length > 0
-      ? balanceLineData[balanceLineData.length - 1].balance
-      : calibratedBalance;
-
-  // ─── Tax obligation: calibrated debt minus payments since calibration ─
-  const taxDebtDate = settings?.taxDebtDate
-    ? new Date(settings.taxDebtDate)
-    : null;
-  const totalTaxPayments = useMemo(
-    () =>
-      transactions
-        .filter((t) => {
-          if (t.debtPayment !== "tax") return false;
-          if (!taxDebtDate) return true;
-          return new Date(t.date) >= taxDebtDate;
-        })
-        .reduce((s, t) => s + t.amount, 0),
-    [transactions, taxDebtDate],
+  const balanceLine = useMemo(
+    () => balanceSeries(allTransactions, settings, year),
+    [allTransactions, settings, year],
   );
-  // Net tax = manually calibrated debt - tax payments made since calibration date
-  const netTaxObligation = Math.max(0, extraTaxDebt - totalTaxPayments);
-  const totalDebt = netTaxObligation + creditDebt;
-  const aboveWater = currentDerivedBalance - totalDebt;
-
-  // ─── Daily spend bars (last NUM_BARS days) ─────────────────────────
-  const dailyBars = useMemo(() => {
-    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    return spendWidgetDailySeries.slice(-NUM_BARS).map((day) => {
-      const dayTxs = spendWidgetTransactionsByDate.get(day.dateKey) ?? [];
-      return {
-        date: day.date,
-        spend: dayTxs.reduce((s, t) => s + t.amount, 0),
-        segments: dayTxs.map((t) => ({ amount: t.amount })),
-        txs: dayTxs,
-        isToday: day.isToday,
-        dayLabel: dayNames[day.date.getDay()],
-      };
-    });
-  }, [spendWidgetDailySeries, spendWidgetTransactionsByDate]);
-
-  const maxSpend = Math.max(...dailyBars.map((b) => b.spend), 1);
-
-  const { todaySpend, currentSpendStreak, bestSpendStreak, targetSpend } =
-    useMemo(() => {
-      let maxStreak = 0;
-      let streak = 0;
-      for (const day of spendWidgetDailySeries) {
-        if (day.isBelowAverage) {
-          streak++;
-          if (streak > maxStreak) {
-            maxStreak = streak;
-          }
-        } else {
-          streak = 0;
-        }
-      }
-
-      let currentStreak = 0;
-      for (let i = spendWidgetDailySeries.length - 1; i >= 0; i--) {
-        if (!spendWidgetDailySeries[i].isBelowAverage) break;
-        currentStreak++;
-      }
-
-      const latestDay =
-        spendWidgetDailySeries[spendWidgetDailySeries.length - 1];
-
-      return {
-        todaySpend: latestDay?.isToday ? latestDay.spend : 0,
-        currentSpendStreak: currentStreak,
-        bestSpendStreak: maxStreak,
-        targetSpend: latestDay?.runningAverageSpend ?? 0,
-      };
-    }, [spendWidgetDailySeries]);
-
-  // ─── Rolling 7-day comparison ──────────────────────────────────────
-  const { last7Spend, prev7Spend, pctChange7 } = useMemo(() => {
-    const last7 = spendWidgetDailySeries
-      .slice(-7)
-      .reduce((sum, day) => sum + day.spend, 0);
-    const prev7 = spendWidgetDailySeries
-      .slice(-14, -7)
-      .reduce((sum, day) => sum + day.spend, 0);
-    const r7 = last7;
-    const p7 = prev7;
-    const pct = p7 > 0 ? ((r7 - p7) / p7) * 100 : 0;
-    return { last7Spend: r7, prev7Spend: p7, pctChange7: pct };
-  }, [spendWidgetDailySeries]);
-
-  const averageDailySpendData = useMemo(() => {
-    return spendWidgetDailySeries.map((day) => ({
-      date: day.dateKey,
-      label: `${MONTH_SHORT[day.date.getMonth()]} ${day.date.getDate()}`,
-      average: day.runningAverageSpend,
-    }));
-  }, [spendWidgetDailySeries]);
-  const currentAverageDailySpend =
-    averageDailySpendData.length > 0
-      ? averageDailySpendData[averageDailySpendData.length - 1].average
-      : 0;
-
-  // ─── Monthly income vs expense (for charts) ───────────────────────
-  const monthlyData = useMemo(() => {
-    const months = Array.from({ length: 12 }, (_, i) => ({
-      month: MONTH_SHORT[i],
-      income: 0,
-      expense: 0,
-      net: 0,
-    }));
-    for (const tx of sorted) {
-      const m = new Date(tx.date).getMonth();
-      if (tx.type === "income") months[m].income += tx.amount;
-      else months[m].expense += tx.amount;
-    }
-    months.forEach((m) => (m.net = m.income - m.expense));
-    if (year === new Date().getFullYear()) {
-      return months.slice(0, new Date().getMonth() + 1);
-    }
-    return months;
-  }, [sorted, year]);
-
-  // ─── Current month summary ─────────────────────────────────────────
-  const currentMonth = new Date().getMonth();
-  const monthTxs = useMemo(
-    () =>
-      transactions.filter((t) => {
-        const d = new Date(t.date);
-        return d.getMonth() === currentMonth && d.getFullYear() === year;
-      }),
-    [transactions, currentMonth, year],
+  const trends = useMemo(
+    () => computeCategoryTrends(allTransactions, categoryIndex),
+    [allTransactions, categoryIndex],
   );
-  const totalIncome = monthTxs
-    .filter((t) => t.type === "income")
-    .reduce((s, t) => s + t.amount, 0);
-  const totalExpense = monthTxs
-    .filter((t) => t.type === "expense")
-    .reduce((s, t) => s + t.amount, 0);
-  const monthBalance = totalIncome - totalExpense;
-
-  // ─── Year totals ──────────────────────────────────────────────────
-  const yearIncome = transactions
-    .filter((t) => t.type === "income")
-    .reduce((s, t) => s + t.amount, 0);
-  const yearExpense = transactions
-    .filter((t) => t.type === "expense")
-    .reduce((s, t) => s + t.amount, 0);
-  const yearNet = yearIncome - yearExpense;
-  const savingsRate = yearIncome > 0 ? (yearNet / yearIncome) * 100 : 0;
-
-  // Budget splits
-  const needsSpend = transactions
-    .filter((t) => t.type === "expense" && t.categoryId?.budgetType === "needs")
-    .reduce((s, t) => s + t.amount, 0);
-  const wantsSpend = transactions
-    .filter((t) => t.type === "expense" && t.categoryId?.budgetType === "wants")
-    .reduce((s, t) => s + t.amount, 0);
-  const savingsSpend = transactions
-    .filter(
-      (t) => t.type === "expense" && t.categoryId?.budgetType === "savings",
-    )
-    .reduce((s, t) => s + t.amount, 0);
-
-  // Category breakdown
-  const spendByCategory: Record<
-    string,
-    { name: string; emoji: string; color: string; amount: number }
-  > = {};
-  transactions
-    .filter((t) => t.type === "expense")
-    .forEach((t) => {
-      const catId = t.categoryId?._id || "unknown";
-      if (!spendByCategory[catId]) {
-        spendByCategory[catId] = {
-          name: t.categoryId?.name || "Unknown",
-          emoji: t.categoryId?.emoji || "📦",
-          color: t.categoryId?.color || "#6366f1",
-          amount: 0,
-        };
-      }
-      spendByCategory[catId].amount += t.amount;
-    });
-  const sortedCategories = Object.values(spendByCategory).sort(
-    (a, b) => b.amount - a.amount,
-  );
-
-  const containerVariants = {
-    hidden: { opacity: 0 },
-    show: { opacity: 1, transition: { staggerChildren: 0.06 } },
-  };
-  const itemVariants = {
-    hidden: { opacity: 0, y: 20 },
-    show: { opacity: 1, y: 0 },
-  };
-
-  // ─── Insight cards ─────────────────────────────────────────────────
-  const categoryTrends = useMemo(
-    () => computeCategoryTrends(transactions),
-    [transactions],
-  );
-  const monthForecast = useMemo(
-    () => computeMonthForecast(transactions, recurring),
-    [transactions, recurring],
-  );
-  const weeklyDigest = useMemo(
-    () => computeWeeklyDigest(transactions, spendWidgetDailySeries),
-    [transactions, spendWidgetDailySeries],
+  const forecast = useMemo(
+    () => computeMonthForecast(allTransactions, recurring, categoryIndex),
+    [allTransactions, recurring, categoryIndex],
   );
   const health = useMemo(
     () =>
       computeHealthScore({
-        transactions,
-        dailySeries: spendWidgetDailySeries,
+        transactions: allTransactions,
+        dailySeries: series,
         totalDebt,
+        yearTaxOwed: tax.owed,
+        index: categoryIndex,
       }),
-    [transactions, spendWidgetDailySeries, totalDebt],
+    [allTransactions, series, totalDebt, tax.owed, categoryIndex],
   );
 
-  const orderedHomeCards = normalizeHomeCards(settings?.homeCards);
+  const cards = normalizeHomeCards(settings?.homeCards);
 
   const renderCard = (cardId: HomeCardId) => {
     switch (cardId) {
-      case "health-score":
+      case "spendable":
+        return <SpendableCard result={spendable} />;
+
+      case "budgets":
+        return <BudgetsSummary />;
+
+      case "balance-overview":
         return (
-          <motion.div key={cardId} variants={itemVariants}>
-            <HealthScoreCard health={health} />
-          </motion.div>
+          <div
+            className={cn(
+              "rounded-2xl border p-4",
+              aboveWater >= 0
+                ? "border-emerald-500/20 bg-emerald-500/5"
+                : "border-red-500/20 bg-red-500/5",
+            )}
+          >
+            <div className="mb-1 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Wallet className="h-4 w-4 text-muted-foreground" />
+                <span className="text-xs text-muted-foreground">Balance</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                {aboveWater >= 0 ? (
+                  <Anchor className="h-3.5 w-3.5 text-emerald-400" />
+                ) : (
+                  <AlertTriangle className="h-3.5 w-3.5 text-red-400" />
+                )}
+                <span className="text-xs text-muted-foreground">
+                  {aboveWater >= 0 ? "Above water" : "Below water"}
+                </span>
+              </div>
+            </div>
+            <div className="flex items-end justify-between">
+              <div className="text-3xl font-bold tabular-nums">
+                {formatCurrency(balance)}
+              </div>
+              <div
+                className={cn(
+                  "text-2xl font-bold tabular-nums",
+                  aboveWater >= 0 ? "text-emerald-400" : "text-red-400",
+                )}
+              >
+                {formatCurrency(aboveWater)}
+              </div>
+            </div>
+            <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+              <div>
+                <span className="text-muted-foreground">Calibrated</span>
+                <div className="font-medium tabular-nums">
+                  {formatCurrency(settings?.currentBalance ?? 0)}
+                </div>
+                {settings?.balanceDate ? (
+                  <div className="text-[9px] text-muted-foreground/60">
+                    {format(new Date(settings.balanceDate), "MMM d")}
+                  </div>
+                ) : null}
+              </div>
+              <Link href="/insights">
+                <span className="text-muted-foreground">Tax to pay</span>
+                <div className="font-medium text-orange-400 tabular-nums">
+                  {formatCurrency(taxToPay)}
+                </div>
+                <div className="text-[9px] text-muted-foreground/60">
+                  {year} · {formatCurrency(tax.paid)} paid
+                </div>
+              </Link>
+              <div>
+                <span className="text-muted-foreground">Credit debt</span>
+                <div className="font-medium text-red-400 tabular-nums">
+                  {formatCurrency(credit.outstanding)}
+                </div>
+                {credit.repaid > 0 ? (
+                  <div className="text-[9px] text-muted-foreground/60">
+                    {formatCurrency(credit.repaid)} repaid
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        );
+
+      case "daily-spend":
+        return (
+          <DailySpendCard
+            transactions={allTransactions}
+            allowance={spendable.hasGoal ? spendable.allowanceToday : null}
+          />
         );
 
       case "month-forecast":
-        return (
-          <motion.div key={cardId} variants={itemVariants}>
-            <MonthForecastCard forecast={monthForecast} />
-          </motion.div>
-        );
+        return <MonthForecastCard forecast={forecast} />;
 
       case "category-trends":
-        if (categoryTrends.length === 0) return null;
-        return (
-          <motion.div key={cardId} variants={itemVariants}>
-            <CategoryTrendsCard trends={categoryTrends} />
-          </motion.div>
-        );
-
-      case "weekly-digest":
-        return (
-          <motion.div key={cardId} variants={itemVariants}>
-            <WeeklyDigestCard digest={weeklyDigest} />
-          </motion.div>
-        );
-
-      case "spend-streak":
-        return (
-          <motion.div key={cardId} variants={itemVariants}>
-            <SpendStreakCard
-              todaySpend={todaySpend}
-              targetSpend={targetSpend}
-              currentStreak={currentSpendStreak}
-              bestStreak={bestSpendStreak}
-            />
-          </motion.div>
-        );
-
-      case "activity-grid":
-        return (
-          <motion.div key={cardId} variants={itemVariants}>
-            <ActivityGrid transactions={transactions} year={year} />
-          </motion.div>
-        );
-
-      case "last7-spend":
-        return (
-          <motion.div
-            key={cardId}
-            variants={itemVariants}
-            className="p-4 bg-card rounded-2xl"
-          >
-            <div className="flex items-start justify-between mb-1">
-              <div>
-                <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                  Last 7 days · non-recurring
-                </div>
-                <div className="text-2xl font-bold">
-                  {formatCurrency(last7Spend)}
-                </div>
-              </div>
-              <div className="text-right">
-                {prev7Spend > 0 && (
-                  <div
-                    className={`flex items-center gap-1 text-xs font-medium ${
-                      pctChange7 <= 0 ? "text-emerald-400" : "text-red-400"
-                    }`}
-                  >
-                    {pctChange7 <= 0 ? (
-                      <ArrowDown className="w-3 h-3" />
-                    ) : (
-                      <ArrowUp className="w-3 h-3" />
-                    )}
-                    {Math.abs(pctChange7).toFixed(0)}% vs prior 7 days
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div
-              className="flex items-end gap-[3px] mt-3"
-              style={{ height: 110 }}
-            >
-              {dailyBars.map((bar, i) => {
-                const heightPct =
-                  bar.spend > 0 ? (bar.spend / maxSpend) * 65 + 5 : 2;
-                const isSelected = selectedBarIdx === i;
-                return (
-                  <div
-                    key={i}
-                    className="flex-1 flex flex-col items-center gap-1 cursor-pointer"
-                    style={{ height: "100%" }}
-                    onClick={() => setSelectedBarIdx(isSelected ? null : i)}
-                  >
-                    {bar.spend > 0 && (
-                      <span className="text-[7px] text-muted-foreground leading-none whitespace-nowrap">
-                        {bar.spend >= 1000
-                          ? `${(bar.spend / 1000).toFixed(1)}k`
-                          : Math.round(bar.spend)}
-                      </span>
-                    )}
-                    <div className="flex-1 flex items-end w-full">
-                      <motion.div
-                        initial={{ height: 0 }}
-                        animate={{ height: `${heightPct}%` }}
-                        transition={{ duration: 0.5, delay: i * 0.03 }}
-                        className={`w-full rounded-t-sm overflow-hidden flex flex-col-reverse gap-[2px] ${
-                          bar.isToday
-                            ? "opacity-30"
-                            : bar.spend === 0
-                              ? "bg-muted-foreground/10"
-                              : ""
-                        } ${isSelected ? "ring-1 ring-primary/50" : ""}`}
-                      >
-                        {bar.segments.map((seg, j) => (
-                          <div
-                            key={j}
-                            className={`w-full rounded-[1px] ${
-                              bar.isToday ? "bg-muted-foreground" : "bg-primary"
-                            }`}
-                            style={{ flexGrow: seg.amount }}
-                          />
-                        ))}
-                      </motion.div>
-                    </div>
-                    <span className="text-[8px] text-muted-foreground leading-none">
-                      {bar.dayLabel}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-
-            <AnimatePresence>
-              {selectedBarIdx !== null && dailyBars[selectedBarIdx] && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: "auto", opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  className="overflow-hidden"
-                >
-                  <div className="mt-3 pt-3 border-t border-border/30 space-y-1.5">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-medium text-muted-foreground">
-                        {format(dailyBars[selectedBarIdx].date, "EEEE, MMM d")}
-                      </span>
-                      <button
-                        onClick={() => setSelectedBarIdx(null)}
-                        className="p-1 rounded-md hover:bg-secondary text-muted-foreground"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </div>
-                    {dailyBars[selectedBarIdx].txs.length === 0 ? (
-                      <div className="text-xs text-muted-foreground text-center py-3">
-                        No non-recurring expenses
-                      </div>
-                    ) : (
-                      dailyBars[selectedBarIdx].txs.map((tx) => (
-                        <div
-                          key={tx._id}
-                          className="flex items-center gap-2.5 p-2.5 bg-secondary/50 rounded-xl"
-                        >
-                          <span
-                            className="w-8 h-8 rounded-lg flex items-center justify-center text-base shrink-0"
-                            style={{
-                              backgroundColor:
-                                (tx.categoryId?.color || "#6366f1") + "20",
-                            }}
-                          >
-                            {tx.categoryId?.emoji || "📦"}
-                          </span>
-                          <div className="flex-1 min-w-0">
-                            <div className="text-xs font-medium truncate">
-                              {tx.description ||
-                                tx.categoryId?.name ||
-                                "Unknown"}
-                            </div>
-                            <div className="text-[10px] text-muted-foreground">
-                              {tx.categoryId?.name}
-                            </div>
-                          </div>
-                          <span className="text-xs font-semibold text-red-400 flex items-center gap-1">
-                            <ArrowDownCircle className="w-3 h-3" />
-                            {formatCurrency(tx.amount)}
-                          </span>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </motion.div>
-        );
+        return trends.length > 0 ? <CategoryTrendsCard trends={trends} /> : null;
 
       case "balance-chart":
-        if (balanceLineData.length <= 1) return null;
+        if (balanceLine.length <= 1) return null;
         return (
-          <motion.div
-            key={cardId}
-            variants={itemVariants}
-            className="p-4 bg-card rounded-2xl"
-          >
-            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-3">
+          <div className="rounded-2xl bg-card p-4">
+            <div className="mb-3 text-[10px] uppercase tracking-wider text-muted-foreground">
               Balance — {year}
             </div>
-            <div className="h-48 -mx-2 pointer-events-none">
+            <div className="pointer-events-none -mx-2 h-48">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={balanceLineData}>
+                <AreaChart data={balanceLine}>
                   <defs>
                     <linearGradient id="balGrad" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor="#6366f1" stopOpacity={0.3} />
@@ -629,358 +325,37 @@ export default function Home() {
                 </AreaChart>
               </ResponsiveContainer>
             </div>
-          </motion.div>
+          </div>
         );
 
-      case "average-daily-spend":
-        if (averageDailySpendData.length === 0) return null;
-        return (
-          <motion.div
-            key={cardId}
-            variants={itemVariants}
-            className="p-4 bg-card rounded-2xl"
-          >
-            <div className="mb-3 flex items-start justify-between gap-3">
-              <div>
-                <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                  Average Daily Spend — {year}
-                </div>
-                <div className="text-2xl font-bold">
-                  {formatCurrency(currentAverageDailySpend)}
-                </div>
-              </div>
-              <div className="text-right text-[10px] uppercase tracking-wider text-muted-foreground">
-                Non-recurring
-              </div>
-            </div>
-            <div className="h-48 -mx-2 pointer-events-none">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={averageDailySpendData}>
-                  <defs>
-                    <linearGradient
-                      id="avgSpendGrad"
-                      x1="0"
-                      y1="0"
-                      x2="0"
-                      y2="1"
-                    >
-                      <stop offset="0%" stopColor="#f97316" stopOpacity={0.3} />
-                      <stop offset="100%" stopColor="#f97316" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
-                  <XAxis
-                    dataKey="label"
-                    tick={{ fill: "#a1a1aa", fontSize: 10 }}
-                    axisLine={false}
-                    tickLine={false}
-                    interval="preserveStartEnd"
-                  />
-                  <YAxis
-                    tick={{ fill: "#a1a1aa", fontSize: 10 }}
-                    axisLine={false}
-                    tickLine={false}
-                    width={50}
-                    tickFormatter={(value) => `€${Math.round(value)}`}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="average"
-                    stroke="#f97316"
-                    strokeWidth={2}
-                    fill="url(#avgSpendGrad)"
-                    dot={false}
-                    activeDot={false}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </motion.div>
-        );
+      case "activity-grid":
+        return <ActivityGrid transactions={transactions} year={year} />;
 
-      case "balance-overview":
-        return (
-          <motion.div
-            key={cardId}
-            variants={itemVariants}
-            className={`p-4 rounded-2xl border ${
-              aboveWater >= 0
-                ? "bg-emerald-500/5 border-emerald-500/20"
-                : "bg-red-500/5 border-red-500/20"
-            }`}
-          >
-            <div className="flex items-center justify-between mb-1">
-              <div className="flex items-center gap-2">
-                <Wallet className="w-4 h-4 text-muted-foreground" />
-                <span className="text-xs text-muted-foreground">
-                  Current Balance
-                </span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                {aboveWater >= 0 ? (
-                  <Anchor className="w-3.5 h-3.5 text-emerald-400" />
-                ) : (
-                  <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
-                )}
-                <span className="text-xs text-muted-foreground">
-                  {aboveWater >= 0 ? "Above Water" : "Below Water"}
-                </span>
-              </div>
-            </div>
-            <div className="flex items-end justify-between">
-              <div className="text-3xl font-bold">
-                {formatCurrency(currentDerivedBalance)}
-              </div>
-              <div
-                className={`text-3xl font-bold ${aboveWater >= 0 ? "text-emerald-400" : "text-red-400"}`}
-              >
-                {formatCurrency(aboveWater)}
-              </div>
-            </div>
-            <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
-              <div>
-                <span className="text-muted-foreground">Calibrated</span>
-                <div className="font-medium">
-                  {formatCurrency(calibratedBalance)}
-                </div>
-                {settings?.balanceDate && (
-                  <div className="text-[9px] text-muted-foreground/50">
-                    {format(new Date(settings.balanceDate), "MMM d")}
-                  </div>
-                )}
-              </div>
-              <div>
-                <span className="text-muted-foreground">Tax Obligation</span>
-                <div className="font-medium text-red-400">
-                  {formatCurrency(netTaxObligation)}
-                </div>
-                {totalTaxPayments > 0 && (
-                  <div className="text-[9px] text-muted-foreground/50">
-                    -{formatCurrency(totalTaxPayments)} paid
-                  </div>
-                )}
-              </div>
-              <div>
-                <span className="text-muted-foreground">Credit Debt</span>
-                <div className="font-medium text-red-400">
-                  {formatCurrency(creditDebt)}
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        );
-
-      case "month-summary":
-        return (
-          <motion.div
-            key={cardId}
-            variants={itemVariants}
-            className="flex items-center justify-between p-3 bg-card rounded-xl"
-          >
-            <div className="text-center flex-1">
-              <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                Income
-              </div>
-              <div className="text-sm font-semibold text-emerald-400">
-                {formatCurrency(totalIncome)}
-              </div>
-            </div>
-            <div className="w-px h-8 bg-border" />
-            <div className="text-center flex-1">
-              <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                Expenses
-              </div>
-              <div className="text-sm font-semibold text-red-400">
-                {formatCurrency(totalExpense)}
-              </div>
-            </div>
-            <div className="w-px h-8 bg-border" />
-            <div className="text-center flex-1">
-              <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                Balance
-              </div>
-              <div
-                className={`text-sm font-semibold ${monthBalance >= 0 ? "text-emerald-400" : "text-red-400"}`}
-              >
-                {formatCurrency(monthBalance)}
-              </div>
-            </div>
-          </motion.div>
-        );
-
-      case "monthly-income-expenses":
-        if (monthlyData.length === 0) return null;
-        return (
-          <motion.div
-            key={cardId}
-            variants={itemVariants}
-            className="p-4 bg-card rounded-2xl"
-          >
-            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-3">
-              Monthly Income vs Expenses
-            </div>
-            <div className="h-40 -mx-2 pointer-events-none">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={monthlyData} barGap={2}>
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke="#27272a"
-                    vertical={false}
-                  />
-                  <XAxis
-                    dataKey="month"
-                    tick={{ fill: "#a1a1aa", fontSize: 10 }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    tick={{ fill: "#a1a1aa", fontSize: 10 }}
-                    axisLine={false}
-                    tickLine={false}
-                    width={45}
-                    tickFormatter={(v) => `€${(v / 1000).toFixed(1)}k`}
-                  />
-                  <Bar
-                    dataKey="income"
-                    fill="#22c55e"
-                    radius={[3, 3, 0, 0]}
-                    name="Income"
-                  />
-                  <Bar
-                    dataKey="expense"
-                    fill="#ef4444"
-                    radius={[3, 3, 0, 0]}
-                    name="Expenses"
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </motion.div>
-        );
-
-      case "year-summary":
-        return (
-          <motion.div
-            key={cardId}
-            variants={itemVariants}
-            className="grid grid-cols-3 gap-2"
-          >
-            <div className="p-3 bg-card rounded-2xl text-center">
-              <TrendingUp className="w-4 h-4 text-emerald-400 mx-auto mb-1" />
-              <div className="text-[10px] text-muted-foreground">
-                Year Income
-              </div>
-              <div className="text-sm font-bold text-emerald-400">
-                {formatCurrency(yearIncome)}
-              </div>
-            </div>
-            <div className="p-3 bg-card rounded-2xl text-center">
-              <TrendingDown className="w-4 h-4 text-red-400 mx-auto mb-1" />
-              <div className="text-[10px] text-muted-foreground">
-                Year Expense
-              </div>
-              <div className="text-sm font-bold text-red-400">
-                {formatCurrency(yearExpense)}
-              </div>
-            </div>
-            <div className="p-3 bg-card rounded-2xl text-center">
-              <Wallet className="w-4 h-4 text-primary mx-auto mb-1" />
-              <div className="text-[10px] text-muted-foreground">
-                Savings Rate
-              </div>
-              <div
-                className={`text-sm font-bold ${savingsRate >= 0 ? "text-emerald-400" : "text-red-400"}`}
-              >
-                {savingsRate.toFixed(0)}%
-              </div>
-            </div>
-          </motion.div>
-        );
-
-      case "budget-split":
-        return (
-          <motion.div
-            key={cardId}
-            variants={itemVariants}
-            className="p-4 bg-card rounded-2xl"
-          >
-            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-4">
-              50/30/20 Budget — {year}
-            </div>
-            <BudgetDonut
-              needs={needsSpend}
-              wants={wantsSpend}
-              savings={savingsSpend}
-              totalIncome={yearIncome}
-            />
-          </motion.div>
-        );
-
-      case "category-spend":
-        if (sortedCategories.length === 0) return null;
-        return (
-          <motion.div
-            key={cardId}
-            variants={itemVariants}
-            className="p-4 bg-card rounded-2xl"
-          >
-            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-3">
-              Spending by Category — {year}
-            </div>
-            <div className="space-y-2">
-              {sortedCategories.map((cat) => {
-                const pct =
-                  yearExpense > 0 ? (cat.amount / yearExpense) * 100 : 0;
-                return (
-                  <div
-                    key={cat.name}
-                    className="flex items-center gap-3 text-sm"
-                  >
-                    <span
-                      className="w-8 h-8 rounded-lg flex items-center justify-center text-sm shrink-0"
-                      style={{ backgroundColor: cat.color + "20" }}
-                    >
-                      {cat.emoji}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex justify-between mb-0.5">
-                        <span className="truncate">{cat.name}</span>
-                        <span className="text-muted-foreground shrink-0 ml-2">
-                          {formatCurrency(cat.amount)}
-                        </span>
-                      </div>
-                      <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
-                        <motion.div
-                          className="h-full rounded-full"
-                          style={{ backgroundColor: cat.color }}
-                          initial={{ width: 0 }}
-                          animate={{ width: `${pct}%` }}
-                          transition={{ duration: 0.8 }}
-                        />
-                      </div>
-                    </div>
-                    <span className="text-xs text-muted-foreground w-10 text-right shrink-0">
-                      {pct.toFixed(0)}%
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </motion.div>
-        );
+      case "health-score":
+        return <HealthScoreCard health={health} />;
     }
   };
 
   return (
     <motion.div
-      variants={containerVariants}
       initial="hidden"
       animate="show"
+      variants={{
+        hidden: { opacity: 0 },
+        show: { opacity: 1, transition: { staggerChildren: 0.06 } },
+      }}
       className="space-y-4"
     >
-      {orderedHomeCards.map((card) =>
-        card.enabled ? renderCard(card.id) : null,
-      )}
+      {cards.map((card) => {
+        if (!card.enabled) return null;
+        const content = renderCard(card.id);
+        if (!content) return null;
+        return (
+          <motion.div key={card.id} variants={itemVariants}>
+            {content}
+          </motion.div>
+        );
+      })}
     </motion.div>
   );
 }

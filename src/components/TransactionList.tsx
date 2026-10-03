@@ -10,153 +10,342 @@ import {
   Check,
   X,
   Calendar,
+  Repeat,
 } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
-import { TransactionType } from "@/lib/types";
+import { IncomeType, TransactionType } from "@/lib/types";
 import { format } from "date-fns";
 import AmountInput from "@/components/AmountInput";
+import CategoryPicker from "@/components/CategoryPicker";
+import { useAppData } from "@/lib/AppDataContext";
+import { categoryLabel, resolveCategory } from "@/lib/categories";
+import { dateKeyToDate, txDateKey } from "@/lib/dates";
+import { taxYearOf } from "@/lib/tax";
 
 interface TransactionListProps {
   transactions: TransactionType[];
-  onDelete?: (id: string) => void;
-  onUpdate?: (updated: TransactionType) => void;
+  /** Open every day group (used while searching/filtering). */
+  expandAll?: boolean;
+  emptyLabel?: string;
 }
 
-export default function TransactionList({
-  transactions,
-  onDelete,
-  onUpdate,
-}: TransactionListProps) {
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editAmount, setEditAmount] = useState("");
-  const [editDate, setEditDate] = useState("");
-  const [editWriteOff, setEditWriteOff] = useState(false);
-  const [saving, setSaving] = useState(false);
-
-  const startEdit = (tx: TransactionType) => {
-    setEditingId(tx._id);
-    setEditAmount(tx.amount.toString());
-    setEditDate(format(new Date(tx.date), "yyyy-MM-dd"));
-    setEditWriteOff(tx.isWriteOff);
-  };
-
-  const cancelEdit = () => {
-    setEditingId(null);
-  };
-
-  const saveEdit = async (id: string) => {
-    setSaving(true);
+function openNativeDatePicker(value: string, onPick: (value: string) => void) {
+  const input = document.createElement("input");
+  input.type = "date";
+  input.value = value;
+  input.style.cssText = "position:fixed;opacity:0;top:50%;left:50%";
+  document.body.appendChild(input);
+  const cleanup = () => {
     try {
-      const res = await fetch(`/api/transactions/${id}`, {
+      input.remove();
+    } catch {
+      /* already removed */
+    }
+  };
+  input.addEventListener("change", (e) => {
+    onPick((e.target as HTMLInputElement).value);
+    cleanup();
+  });
+  input.addEventListener("blur", cleanup);
+  input.showPicker?.();
+  input.focus();
+}
+
+function EditPanel({
+  tx,
+  onDone,
+}: {
+  tx: TransactionType;
+  onDone: () => void;
+}) {
+  const { categoryIndex, refetchTransactions, deleteTransaction } =
+    useAppData();
+  const [amount, setAmount] = useState(tx.amount.toString());
+  const [date, setDate] = useState(txDateKey(tx.date));
+  const [description, setDescription] = useState(tx.description ?? "");
+  const [categoryId, setCategoryId] = useState(tx.categoryId?._id ?? "");
+  const [isWriteOff, setIsWriteOff] = useState(tx.isWriteOff);
+  const [incomeType, setIncomeType] = useState<IncomeType>(
+    tx.incomeType ?? "neto",
+  );
+  const [taxYear, setTaxYear] = useState(taxYearOf(tx));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const category = categoryIndex.byId.get(categoryId);
+  const isTax = Boolean(category?.isTax);
+  const dateYear = Number(date.slice(0, 4));
+
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const body: Record<string, unknown> = {
+        amount: parseFloat(amount),
+        date,
+        description,
+        categoryId,
+      };
+      if (tx.type === "expense") body.isWriteOff = isTax ? false : isWriteOff;
+      if (tx.type === "income") body.incomeType = incomeType;
+      body.taxYear = isTax && taxYear !== dateYear ? taxYear : null;
+
+      const res = await fetch(`/api/transactions/${tx._id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          amount: parseFloat(editAmount),
-          date: new Date(editDate),
-          isWriteOff: editWriteOff,
-        }),
+        body: JSON.stringify(body),
       });
-      if (res.ok) {
-        const updated = await res.json();
-        onUpdate?.(updated);
-        setEditingId(null);
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setError(data?.error || "Couldn't save");
+        return;
       }
-    } catch (error) {
-      console.error("Failed to update:", error);
+      await refetchTransactions();
+      onDone();
+    } catch (e) {
+      console.error("Failed to update:", e);
+      setError("Couldn't save");
     } finally {
       setSaving(false);
     }
   };
 
-  const handleDelete = async (id: string) => {
-    setDeletingId(id);
-    try {
-      const res = await fetch(`/api/transactions/${id}`, { method: "DELETE" });
-      if (res.ok) {
-        onDelete?.(id);
-      }
-    } catch (error) {
-      console.error("Failed to delete:", error);
-    } finally {
-      setDeletingId(null);
-    }
-  };
+  const rowLabel = "w-16 shrink-0 text-xs text-muted-foreground";
 
+  return (
+    <motion.div
+      initial={{ height: 0, opacity: 0 }}
+      animate={{ height: "auto", opacity: 1 }}
+      className="mt-3 space-y-2.5 border-t border-border/50 pt-3"
+    >
+      <div className="flex items-center gap-2">
+        <span className={rowLabel}>Amount</span>
+        <div className="flex flex-1 items-center gap-1">
+          <span className="text-sm text-muted-foreground">€</span>
+          <AmountInput
+            value={amount}
+            onChange={setAmount}
+            className="flex-1 rounded-lg bg-secondary p-1.5 text-sm"
+          />
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <span className={rowLabel}>Note</span>
+        <input
+          type="text"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Description"
+          className="min-w-0 flex-1 rounded-lg bg-secondary p-1.5 text-sm outline-none placeholder:text-muted-foreground/40"
+        />
+      </div>
+
+      <div className="flex items-center gap-2">
+        <span className={rowLabel}>Date</span>
+        <button
+          type="button"
+          onClick={() => openNativeDatePicker(date, setDate)}
+          className="flex flex-1 items-center gap-2 rounded-lg bg-secondary p-1.5 text-left text-sm"
+        >
+          <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+          {format(dateKeyToDate(date), "MMM d, yyyy")}
+        </button>
+      </div>
+
+      <div className="space-y-1.5">
+        <span className={rowLabel}>Category</span>
+        <CategoryPicker
+          type={tx.type}
+          value={categoryId}
+          onChange={setCategoryId}
+        />
+      </div>
+
+      {tx.type === "expense" && isTax ? (
+        <div className="flex items-center gap-2">
+          <span className={rowLabel}>Tax year</span>
+          <div className="flex flex-1 gap-1.5">
+            {[dateYear, dateYear - 1].map((year) => (
+              <button
+                key={year}
+                type="button"
+                onClick={() => setTaxYear(year)}
+                className={cn(
+                  "flex-1 rounded-lg py-1.5 text-xs font-medium transition-all",
+                  taxYear === year
+                    ? "bg-orange-500/15 text-orange-400 ring-1 ring-orange-500/30"
+                    : "bg-secondary text-muted-foreground",
+                )}
+              >
+                {year}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {tx.type === "expense" && !isTax ? (
+        <div className="flex items-center gap-2">
+          <span className={rowLabel}>Write-off</span>
+          <button
+            type="button"
+            onClick={() => setIsWriteOff(!isWriteOff)}
+            className={cn(
+              "flex flex-1 items-center gap-2 rounded-lg p-1.5 transition-all",
+              isWriteOff
+                ? "bg-amber-500/10 ring-1 ring-amber-500/30"
+                : "bg-secondary",
+            )}
+          >
+            <div
+              className={cn(
+                "flex h-4 w-4 items-center justify-center rounded border-2 transition-all",
+                isWriteOff
+                  ? "border-amber-500 bg-amber-500"
+                  : "border-muted-foreground",
+              )}
+            >
+              {isWriteOff && <Check className="h-2.5 w-2.5 text-white" />}
+            </div>
+            <span className="text-xs">
+              {isWriteOff ? "Deductible" : "Not deductible"}
+            </span>
+          </button>
+        </div>
+      ) : null}
+
+      {tx.type === "income" ? (
+        <div className="flex items-center gap-2">
+          <span className={rowLabel}>Income</span>
+          <div className="flex flex-1 gap-1.5">
+            {(["bruto", "neto"] as const).map((value) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setIncomeType(value)}
+                className={cn(
+                  "flex-1 rounded-lg py-1.5 text-xs font-medium capitalize transition-all",
+                  incomeType === value
+                    ? "bg-primary/15 text-primary ring-1 ring-primary/30"
+                    : "bg-secondary text-muted-foreground",
+                )}
+              >
+                {value}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {error ? <div className="text-xs text-red-400">{error}</div> : null}
+
+      <div className="flex gap-2 pt-1">
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving || !amount || !categoryId}
+          className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary/20 py-1.5 text-xs font-medium text-primary disabled:opacity-50"
+        >
+          <Check className="h-3.5 w-3.5" />
+          {saving ? "Saving..." : "Save"}
+        </button>
+        <button
+          type="button"
+          onClick={onDone}
+          className="flex items-center justify-center gap-1.5 rounded-lg bg-secondary px-4 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <X className="h-3.5 w-3.5" />
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            deleteTransaction(tx);
+            onDone();
+          }}
+          aria-label="Delete"
+          className="flex items-center justify-center gap-1.5 rounded-lg bg-destructive/10 px-4 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/20"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </motion.div>
+  );
+}
+
+export default function TransactionList({
+  transactions,
+  expandAll = false,
+  emptyLabel = "No transactions yet",
+}: TransactionListProps) {
+  const { categoryIndex, deleteTransaction } = useAppData();
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [openDay, setOpenDay] = useState<string | null>(null);
 
   if (transactions.length === 0) {
     return (
-      <div className="text-center py-8 text-muted-foreground text-sm">
-        No transactions yet
+      <div className="py-8 text-center text-sm text-muted-foreground">
+        {emptyLabel}
       </div>
     );
   }
 
-  // Group by date
-  const grouped = transactions.reduce(
-    (acc, tx) => {
-      const dateKey = format(new Date(tx.date), "yyyy-MM-dd");
-      if (!acc[dateKey]) acc[dateKey] = [];
-      acc[dateKey].push(tx);
-      return acc;
-    },
-    {} as Record<string, TransactionType[]>,
-  );
+  // Group by calendar day, keeping the incoming (newest-first) order.
+  const grouped = new Map<string, TransactionType[]>();
+  for (const tx of transactions) {
+    const key = txDateKey(tx.date);
+    const list = grouped.get(key) ?? [];
+    list.push(tx);
+    grouped.set(key, list);
+  }
 
   return (
     <div className="space-y-2">
-      {Object.entries(grouped).map(([dateKey, txs]) => {
-        const isOpen = openDay === dateKey;
+      {[...grouped.entries()].map(([dateKey, txs]) => {
+        const isOpen = expandAll || openDay === dateKey;
+        const day = dateKeyToDate(dateKey);
         const dayTotal = txs.reduce(
           (sum, tx) => sum + (tx.type === "income" ? tx.amount : -tx.amount),
           0,
         );
-        const expenseTotal = txs
-          .filter((t) => t.type === "expense")
-          .reduce((s, t) => s + t.amount, 0);
-        // Unique category emojis for preview
         const catEmojis = [
           ...new Set(txs.map((t) => t.categoryId?.emoji || "📦")),
         ].slice(0, 5);
 
         return (
-          <div key={dateKey} className="bg-card rounded-2xl overflow-hidden">
-            {/* Day header — always visible */}
+          <div key={dateKey} className="overflow-hidden rounded-2xl bg-card">
             <button
-              onClick={() => setOpenDay(isOpen ? null : dateKey)}
-              className="w-full flex items-center gap-3 p-3 text-left"
+              type="button"
+              onClick={() => setOpenDay(openDay === dateKey ? null : dateKey)}
+              className="flex w-full items-center gap-3 p-3 text-left"
             >
-              {/* Date column */}
-              <div className="shrink-0 w-10 text-center">
+              <div className="w-10 shrink-0 text-center">
                 <div className="text-lg font-bold leading-none">
-                  {format(new Date(dateKey), "d")}
+                  {format(day, "d")}
                 </div>
-                <div className="text-[10px] text-muted-foreground uppercase">
-                  {format(new Date(dateKey), "EEE")}
+                <div className="text-[10px] uppercase text-muted-foreground">
+                  {format(day, "EEE")}
                 </div>
               </div>
 
-              {/* Category emoji preview */}
-              <div className="flex -space-x-1 shrink-0">
+              <div className="flex shrink-0 -space-x-1">
                 {catEmojis.map((emoji, idx) => (
                   <span
                     key={idx}
-                    className="w-6 h-6 rounded-full bg-secondary flex items-center justify-center text-xs ring-1 ring-background"
+                    className="flex h-6 w-6 items-center justify-center rounded-full bg-secondary text-xs ring-1 ring-background"
                   >
                     {emoji}
                   </span>
                 ))}
               </div>
 
-              {/* Spacer */}
               <div className="flex-1" />
 
-              {/* Amount */}
-              <div className="text-right shrink-0">
+              <div className="shrink-0 text-right">
                 <div
                   className={cn(
-                    "text-sm font-semibold",
+                    "text-sm font-semibold tabular-nums",
                     dayTotal >= 0 ? "text-emerald-400" : "text-red-400",
                   )}
                 >
@@ -167,27 +356,27 @@ export default function TransactionList({
                 </div>
               </div>
 
-              {/* Chevron */}
-              <svg
-                className={cn(
-                  "w-4 h-4 text-muted-foreground transition-transform shrink-0",
-                  isOpen && "rotate-180",
-                )}
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M19 9l-7 7-7-7"
-                />
-              </svg>
+              {!expandAll ? (
+                <svg
+                  className={cn(
+                    "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+                    isOpen && "rotate-180",
+                  )}
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M19 9l-7 7-7-7"
+                  />
+                </svg>
+              ) : null}
             </button>
 
-            {/* Expanded transaction list */}
-            <AnimatePresence>
+            <AnimatePresence initial={false}>
               {isOpen && (
                 <motion.div
                   initial={{ height: 0, opacity: 0 }}
@@ -195,231 +384,102 @@ export default function TransactionList({
                   exit={{ height: 0, opacity: 0 }}
                   className="overflow-hidden"
                 >
-                  <div className="px-3 pb-3 space-y-1.5">
-                    {txs.map((tx, i) => {
+                  <div className="space-y-1.5 px-3 pb-3">
+                    {txs.map((tx) => {
                       const isEditing = editingId === tx._id;
+                      const category = resolveCategory(
+                        tx.categoryId,
+                        categoryIndex,
+                      );
                       return (
-                        <motion.div
+                        <div
                           key={tx._id}
-                          initial={{ opacity: 0, x: -20 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          exit={{ opacity: 0, x: 20, height: 0 }}
-                          transition={{ delay: i * 0.03 }}
                           className={cn(
-                            "p-3 rounded-xl transition-all",
+                            "rounded-xl p-3 transition-all",
                             isEditing
                               ? "bg-primary/5 ring-1 ring-primary/20"
-                              : "bg-secondary/50 group",
+                              : "group bg-secondary/50",
                           )}
                         >
                           <div
-                            className="flex items-center gap-3 cursor-pointer"
-                            onClick={() => !isEditing && startEdit(tx)}
+                            className="flex cursor-pointer items-center gap-3"
+                            onClick={() =>
+                              setEditingId(isEditing ? null : tx._id)
+                            }
                           >
                             <span
-                              className="w-9 h-9 rounded-lg flex items-center justify-center text-base shrink-0"
+                              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-base"
                               style={{
                                 backgroundColor:
-                                  (tx.categoryId?.color || "#6366f1") + "20",
+                                  (category?.color || "#6366f1") + "20",
                               }}
                             >
-                              {tx.categoryId?.emoji || "📦"}
+                              {category?.emoji || "📦"}
                             </span>
 
-                            <div className="flex-1 min-w-0">
+                            <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-1.5">
-                                <span className="text-sm font-medium truncate">
-                                  {tx.description ||
-                                    tx.categoryId?.name ||
-                                    "Unknown"}
+                                <span className="truncate text-sm font-medium">
+                                  {tx.description || category?.name || "Unknown"}
                                 </span>
                                 {tx.isWriteOff && (
-                                  <FileText className="w-3 h-3 text-amber-500 shrink-0" />
+                                  <FileText className="h-3 w-3 shrink-0 text-amber-500" />
+                                )}
+                                {tx.recurringPaymentId && (
+                                  <Repeat className="h-3 w-3 shrink-0 text-muted-foreground" />
                                 )}
                                 {tx.type === "income" && tx.incomeType && (
-                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium shrink-0">
+                                  <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
                                     {tx.incomeType}
                                   </span>
                                 )}
                               </div>
-                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                <span>{tx.categoryId?.name}</span>
-                                {tx.tags?.length > 0 && (
-                                  <span>· {tx.tags.join(", ")}</span>
-                                )}
+                              <div className="truncate text-xs text-muted-foreground">
+                                {categoryLabel(category, categoryIndex)}
+                                {tx.tags?.length > 0 && ` · ${tx.tags.join(", ")}`}
                               </div>
                             </div>
 
                             <div className="flex items-center gap-2">
                               <span
-                                className={`text-sm font-semibold ${
+                                className={cn(
+                                  "flex items-center gap-1 text-sm font-semibold tabular-nums",
                                   tx.type === "income"
                                     ? "text-emerald-400"
-                                    : "text-red-400"
-                                }`}
+                                    : "text-red-400",
+                                )}
                               >
                                 {tx.type === "income" ? (
-                                  <span className="flex items-center gap-1">
-                                    <ArrowUpCircle className="w-3 h-3" />+
-                                    {formatCurrency(tx.amount)}
-                                  </span>
+                                  <ArrowUpCircle className="h-3 w-3" />
                                 ) : (
-                                  <span className="flex items-center gap-1">
-                                    <ArrowDownCircle className="w-3 h-3" />-
-                                    {formatCurrency(tx.amount)}
-                                  </span>
+                                  <ArrowDownCircle className="h-3 w-3" />
                                 )}
+                                {tx.type === "income" ? "+" : "-"}
+                                {formatCurrency(tx.amount)}
                               </span>
                               {!isEditing && (
                                 <button
+                                  type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    handleDelete(tx._id);
+                                    deleteTransaction(tx);
                                   }}
-                                  disabled={deletingId === tx._id}
-                                  className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition-all"
+                                  aria-label="Delete"
+                                  className="rounded-lg p-1.5 text-muted-foreground opacity-0 transition-all hover:bg-destructive/20 hover:text-destructive group-hover:opacity-100"
                                 >
-                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <Trash2 className="h-3.5 w-3.5" />
                                 </button>
                               )}
                             </div>
                           </div>
 
-                          {/* Inline edit panel */}
                           {isEditing && (
-                            <motion.div
-                              initial={{ height: 0, opacity: 0 }}
-                              animate={{ height: "auto", opacity: 1 }}
-                              className="mt-3 pt-3 border-t border-border/50 space-y-2.5"
-                            >
-                              {/* Amount */}
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs text-muted-foreground w-14">
-                                  Amount
-                                </span>
-                                <div className="flex items-center gap-1 flex-1">
-                                  <span className="text-sm text-muted-foreground">
-                                    €
-                                  </span>
-                                  <AmountInput
-                                    value={editAmount}
-                                    onChange={setEditAmount}
-                                    className="flex-1 p-1.5 bg-secondary rounded-lg text-sm"
-                                    autoFocus
-                                  />
-                                </div>
-                              </div>
-
-                              {/* Date */}
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs text-muted-foreground w-14">
-                                  Date
-                                </span>
-                                <button
-                                  onClick={() => {
-                                    const input =
-                                      document.createElement("input");
-                                    input.type = "date";
-                                    input.value = editDate;
-                                    input.style.position = "fixed";
-                                    input.style.opacity = "0";
-                                    input.style.top = "50%";
-                                    input.style.left = "50%";
-                                    document.body.appendChild(input);
-                                    const cleanup = () => {
-                                      try {
-                                        input.remove();
-                                      } catch {
-                                        /* already removed */
-                                      }
-                                    };
-                                    input.addEventListener("change", (e) => {
-                                      setEditDate(
-                                        (e.target as HTMLInputElement).value,
-                                      );
-                                      cleanup();
-                                    });
-                                    input.addEventListener("blur", cleanup);
-                                    input.showPicker?.();
-                                    input.focus();
-                                  }}
-                                  className="flex-1 flex items-center gap-2 p-1.5 bg-secondary rounded-lg text-sm text-left"
-                                >
-                                  <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
-                                  {format(new Date(editDate), "MMM d, yyyy")}
-                                </button>
-                              </div>
-
-                              {/* Write-off toggle */}
-                              {tx.type === "expense" && (
-                                <div className="flex items-center gap-2">
-                                  <span className="text-xs text-muted-foreground w-14">
-                                    Write-off
-                                  </span>
-                                  <button
-                                    onClick={() =>
-                                      setEditWriteOff(!editWriteOff)
-                                    }
-                                    className={cn(
-                                      "flex items-center gap-2 p-1.5 rounded-lg transition-all flex-1",
-                                      editWriteOff
-                                        ? "bg-amber-500/10 ring-1 ring-amber-500/30"
-                                        : "bg-secondary",
-                                    )}
-                                  >
-                                    <div
-                                      className={cn(
-                                        "w-4 h-4 rounded border-2 flex items-center justify-center transition-all",
-                                        editWriteOff
-                                          ? "bg-amber-500 border-amber-500"
-                                          : "border-muted-foreground",
-                                      )}
-                                    >
-                                      {editWriteOff && (
-                                        <Check className="w-2.5 h-2.5 text-white" />
-                                      )}
-                                    </div>
-                                    <span className="text-xs">
-                                      {editWriteOff
-                                        ? "Deductible"
-                                        : "Not deductible"}
-                                    </span>
-                                  </button>
-                                </div>
-                              )}
-
-                              {/* Actions */}
-                              <div className="flex gap-2 pt-1">
-                                <button
-                                  onClick={() => saveEdit(tx._id)}
-                                  disabled={saving || !editAmount}
-                                  className="flex-1 flex items-center justify-center gap-1.5 py-1.5 bg-primary/20 text-primary rounded-lg text-xs font-medium disabled:opacity-50"
-                                >
-                                  <Check className="w-3.5 h-3.5" />
-                                  {saving ? "Saving..." : "Save"}
-                                </button>
-                                <button
-                                  onClick={cancelEdit}
-                                  className="flex items-center justify-center gap-1.5 px-4 py-1.5 bg-secondary text-muted-foreground rounded-lg text-xs font-medium hover:text-foreground transition-colors"
-                                >
-                                  <X className="w-3.5 h-3.5" />
-                                  Cancel
-                                </button>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleDelete(tx._id);
-                                    setEditingId(null);
-                                  }}
-                                  disabled={deletingId === tx._id}
-                                  className="flex items-center justify-center gap-1.5 px-4 py-1.5 bg-destructive/10 text-destructive rounded-lg text-xs font-medium hover:bg-destructive/20 transition-colors"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            </motion.div>
+                            <EditPanel
+                              tx={tx}
+                              onDone={() => setEditingId(null)}
+                            />
                           )}
-                        </motion.div>
+                        </div>
                       );
                     })}
                   </div>

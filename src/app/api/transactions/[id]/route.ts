@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectToDatabase } from "@/lib/mongodb";
 import Transaction from "@/lib/models/Transaction";
-import Settings from "@/lib/models/Settings";
 import Category from "@/lib/models/Category";
 import { getUserId } from "@/lib/auth";
+import { sanitizeTransactionFields } from "@/lib/transactionPayload";
+
+// Debt and tax balances are derived from transactions on the client, so
+// editing or deleting a transaction never has to patch Settings.
 
 export async function PUT(
   request: NextRequest,
@@ -17,14 +20,23 @@ export async function PUT(
 
     await connectToDatabase();
     const { id } = await params;
-    const body = { ...(await request.json()) } as Record<string, unknown>;
-    const categoryId = body.categoryId;
-    delete body._id;
-    delete body.userId;
-    delete body.categoryId;
+    const body = (await request.json()) as Record<string, unknown>;
 
-    if (categoryId) {
-      const category = await Category.findOne({ _id: categoryId, userId })
+    let fields: Record<string, unknown>;
+    let unset: Record<string, "">;
+    try {
+      ({ fields, unset } = sanitizeTransactionFields(body));
+    } catch (validationError) {
+      return NextResponse.json(
+        { error: (validationError as Error).message },
+        { status: 400 },
+      );
+    }
+    // The type of an existing transaction can't change.
+    delete fields.type;
+
+    if (body.categoryId) {
+      const category = await Category.findOne({ _id: body.categoryId, userId })
         .select("_id")
         .lean();
 
@@ -35,16 +47,18 @@ export async function PUT(
         );
       }
 
-      body.categoryId = category._id;
+      fields.categoryId = category._id;
     }
+
+    const update: Record<string, unknown> = { $set: fields };
+    if (Object.keys(unset).length > 0) update.$unset = unset;
 
     const transaction = await Transaction.findOneAndUpdate(
       { _id: id, userId },
-      body,
-      {
-        new: true,
-      },
+      update,
+      { new: true },
     )
+      .select("-userId -__v")
       .populate("categoryId")
       .lean();
 
@@ -83,23 +97,6 @@ export async function DELETE(
       return NextResponse.json(
         { error: "Transaction not found" },
         { status: 404 },
-      );
-    }
-
-    // Reverse debt adjustment if this was a debt payment
-    if (transaction.debtPayment) {
-      const field =
-        transaction.debtPayment === "tax" ? "taxDebt" : "creditDebt";
-      await Settings.findOneAndUpdate(
-        { userId },
-        {
-          $inc: { [field]: transaction.amount },
-          $setOnInsert: { userId },
-        },
-        {
-          upsert: true,
-          setDefaultsOnInsert: true,
-        },
       );
     }
 

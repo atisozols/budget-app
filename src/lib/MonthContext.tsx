@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState, ReactNode } from "react";
+import { logicalToday } from "@/lib/dates";
 
 interface MonthContextType {
   month: number;
@@ -19,29 +20,26 @@ const MONTH_NAMES = [
 ];
 
 export function MonthProvider({ children }: { children: ReactNode }) {
-  const [month, setMonth] = useState(new Date().getMonth() + 1);
-  const [year, setYear] = useState(new Date().getFullYear());
+  const [current, setCurrent] = useState(() => {
+    const today = logicalToday();
+    return { month: today.getMonth() + 1, year: today.getFullYear() };
+  });
+  const { month, year } = current;
 
+  const today = logicalToday();
   const isCurrentMonth =
-    month === new Date().getMonth() + 1 && year === new Date().getFullYear();
+    month === today.getMonth() + 1 && year === today.getFullYear();
 
   const goMonth = (dir: -1 | 1) => {
-    setMonth((m) => {
-      let newM = m + dir;
-      if (newM < 1) {
-        setYear((y) => y - 1);
-        newM = 12;
-      } else if (newM > 12) {
-        setYear((y) => y + 1);
-        newM = 1;
-      }
-      return newM;
+    setCurrent(({ month: m, year: y }) => {
+      const d = new Date(y, m - 1 + dir, 1);
+      return { month: d.getMonth() + 1, year: d.getFullYear() };
     });
   };
 
   const goToNow = () => {
-    setMonth(new Date().getMonth() + 1);
-    setYear(new Date().getFullYear());
+    const now = logicalToday();
+    setCurrent({ month: now.getMonth() + 1, year: now.getFullYear() });
   };
 
   const label = `${MONTH_NAMES[month - 1]} ${year}`;

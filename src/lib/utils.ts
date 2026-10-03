@@ -13,40 +13,6 @@ export function formatCurrency(amount: number): string {
   }).format(amount);
 }
 
-export function calculateTax(brutoProfit: number, iinRate: number = 25.5) {
-  const iinTax = brutoProfit * (iinRate / 100);
-  return { iinTax, afterTax: brutoProfit - iinTax };
-}
-
-export function calculateVSAOI(brutoIncome: number, vsaoiRate: number = 31.07) {
-  return brutoIncome * (vsaoiRate / 100);
-}
-
-export function calculateSelfEmployedTaxes(
-  brutoIncome: number,
-  writeOffExpenses: number,
-  iinRate: number = 25.5,
-  vsaoiRate: number = 31.07,
-) {
-  const profit = brutoIncome - writeOffExpenses;
-  const vsaoi = calculateVSAOI(profit > 0 ? profit : 0, vsaoiRate);
-  const taxableIncome = profit - vsaoi;
-  const iinTax = taxableIncome > 0 ? taxableIncome * (iinRate / 100) : 0;
-  const totalTax = vsaoi + iinTax;
-  const netIncome = profit - totalTax;
-
-  return {
-    brutoIncome,
-    writeOffExpenses,
-    profit,
-    vsaoi,
-    taxableIncome: taxableIncome > 0 ? taxableIncome : 0,
-    iinTax,
-    totalTax,
-    netIncome,
-  };
-}
-
 export function getHealthScore(params: {
   balance: number;
   totalDebt: number;
@@ -116,18 +82,6 @@ export function getHealthScore(params: {
 
   return { score, label, color };
 }
-
-export const BUDGET_TYPE_COLORS = {
-  needs: "#6366f1",
-  wants: "#f59e0b",
-  savings: "#22c55e",
-};
-
-export const BUDGET_TYPE_LABELS = {
-  needs: "Needs (50%)",
-  wants: "Wants (30%)",
-  savings: "Savings & Investments (20%)",
-};
 
 export const DEFAULT_CATEGORIES = [
   {
@@ -226,21 +180,22 @@ export const DEFAULT_CATEGORIES = [
     emoji: "📚",
     color: "#84cc16",
     type: "expense" as const,
-    budgetType: "savings" as const,
-  },
-  {
-    name: "Savings",
-    emoji: "💰",
-    color: "#22c55e",
-    type: "expense" as const,
-    budgetType: "savings" as const,
+    budgetType: "wants" as const,
   },
   {
     name: "Investments",
     emoji: "📈",
     color: "#10b981",
     type: "expense" as const,
-    budgetType: "savings" as const,
+    budgetType: "wants" as const,
+  },
+  {
+    name: "Taxes",
+    emoji: "🏛️",
+    color: "#f97316",
+    type: "expense" as const,
+    budgetType: "obligations" as const,
+    isTax: true,
   },
   {
     name: "Freelance",

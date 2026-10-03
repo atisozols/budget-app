@@ -3,6 +3,7 @@ import { connectToDatabase } from "@/lib/mongodb";
 import Category from "@/lib/models/Category";
 import { getUserId } from "@/lib/auth";
 import { DEFAULT_CATEGORIES } from "@/lib/utils";
+import { sanitizeCategoryFields } from "@/lib/categoryPayload";
 
 export async function GET() {
   try {
@@ -46,10 +47,23 @@ export async function POST(request: NextRequest) {
     }
 
     await connectToDatabase();
-    const body = { ...(await request.json()) } as Record<string, unknown>;
-    delete body._id;
-    delete body.userId;
-    const category = await Category.create({ ...body, userId });
+    const body = (await request.json()) as Record<string, unknown>;
+    let fields: Record<string, unknown>;
+    try {
+      fields = await sanitizeCategoryFields(body, userId);
+    } catch (validationError) {
+      return NextResponse.json(
+        { error: (validationError as Error).message },
+        { status: 400 },
+      );
+    }
+    if (!fields.name || !fields.type) {
+      return NextResponse.json(
+        { error: "Name and type are required" },
+        { status: 400 },
+      );
+    }
+    const category = await Category.create({ ...fields, userId });
     return NextResponse.json(category, { status: 201 });
   } catch (error) {
     console.error("POST /api/categories error:", error);

@@ -98,6 +98,14 @@ export async function POST(request: NextRequest) {
         })
       : [];
 
+    // Second pass: subcategories point at their parent's new id.
+    for (const category of categoriesToInsert) {
+      const previousParentId = extractId(category.parentId);
+      category.parentId = previousParentId
+        ? categoryIds.get(previousParentId) ?? null
+        : null;
+    }
+
     const recurringToInsert = Array.isArray(data.recurring)
       ? data.recurring.map((payment: Record<string, unknown>) => {
           const newId = new mongoose.Types.ObjectId();
@@ -132,13 +140,35 @@ export async function POST(request: NextRequest) {
         })
       : [];
 
-    const settingsToInsert =
+    const settingsToInsert: Record<string, unknown> | null =
       data.settings && typeof data.settings === "object"
         ? {
             ...stripManagedFields(data.settings as Record<string, unknown>),
             userId,
           }
         : null;
+    if (settingsToInsert && Array.isArray(settingsToInsert.quickPicks)) {
+      settingsToInsert.quickPicks = (
+        settingsToInsert.quickPicks as Record<string, unknown>[]
+      )
+        .map((pick) => {
+          const previousId = extractId(pick.categoryId);
+          const categoryId = previousId ? categoryIds.get(previousId) : undefined;
+          return categoryId ? { ...pick, categoryId } : null;
+        })
+        .filter(Boolean);
+    }
+    if (settingsToInsert && Array.isArray(settingsToInsert.budgets)) {
+      settingsToInsert.budgets = (
+        settingsToInsert.budgets as { categoryId?: unknown; amount?: unknown }[]
+      )
+        .map((budget) => {
+          const previousId = extractId(budget.categoryId);
+          const categoryId = previousId ? categoryIds.get(previousId) : undefined;
+          return categoryId ? { categoryId, amount: budget.amount } : null;
+        })
+        .filter(Boolean);
+    }
 
     // Clear only the current user's data
     await Promise.all([

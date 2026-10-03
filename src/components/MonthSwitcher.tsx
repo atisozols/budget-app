@@ -1,39 +1,37 @@
 "use client";
 
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { usePathname } from "next/navigation";
 import { useMonth } from "@/lib/MonthContext";
-
-const MONTH_PAGES = ["/recurring", "/history"];
 
 export default function MonthSwitcher() {
   const { isCurrentMonth, goMonth, goToNow, label } = useMonth();
-  const pathname = usePathname();
-
-  if (!MONTH_PAGES.includes(pathname)) return null;
 
   return (
-    <div className="flex items-center justify-between mb-4">
+    <div className="mb-4 flex items-center justify-between">
       <button
+        type="button"
         onClick={() => goMonth(-1)}
-        className="p-2 rounded-xl bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+        aria-label="Previous month"
+        className="rounded-xl bg-secondary p-2 text-muted-foreground transition-colors hover:text-foreground"
       >
-        <ChevronLeft className="w-4 h-4" />
+        <ChevronLeft className="h-4 w-4" />
       </button>
-      <button onClick={goToNow} className="text-sm font-semibold">
+      <button type="button" onClick={goToNow} className="text-sm font-semibold">
         {label}
         {isCurrentMonth && (
-          <span className="ml-1.5 text-[10px] text-muted-foreground font-normal">
+          <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">
             (now)
           </span>
         )}
       </button>
       <button
+        type="button"
         onClick={() => goMonth(1)}
         disabled={isCurrentMonth}
-        className="p-2 rounded-xl bg-secondary text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30"
+        aria-label="Next month"
+        className="rounded-xl bg-secondary p-2 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-30"
       >
-        <ChevronRight className="w-4 h-4" />
+        <ChevronRight className="h-4 w-4" />
       </button>
     </div>
   );

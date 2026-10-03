@@ -18,6 +18,7 @@ import {
   UserPlus,
   ChevronDown,
   LayoutPanelTop,
+  Zap,
   ArrowUp,
   ArrowDown,
 } from "lucide-react";
@@ -31,8 +32,12 @@ import {
   type HomeCardPreference,
   normalizeHomeCards,
 } from "@/lib/homeCards";
+import { useCreditDebt, useTaxYear } from "@/lib/useFinance";
+import { buildCategoryIndex } from "@/lib/categories";
+import QuickPicksEditor from "@/components/QuickPicksEditor";
 
 type DrawerKey =
+  | "quick-picks"
   | "home-cards"
   | "add-user"
   | "balance-debts"
@@ -96,13 +101,21 @@ function DrawerSection({
 }
 
 export default function SettingsPage() {
-  const { refetchSettings } = useAppData();
+  const {
+    refetchSettings,
+    refetchCategories,
+    year,
+    settings: liveSettings,
+  } = useAppData();
+  const tax = useTaxYear(year);
+  const credit = useCreditDebt();
   const [settings, setSettings] = useState<SettingsType | null>(null);
   const [user, setUser] = useState<SessionUser | null>(null);
   const [currentBalance, setCurrentBalance] = useState("");
-  const [taxDebt, setTaxDebt] = useState("");
   const [creditDebt, setCreditDebt] = useState("");
   const [vsaoiRate, setVsaoiRate] = useState("");
+  const [vsaoiPensionRate, setVsaoiPensionRate] = useState("");
+  const [vsaoiThreshold, setVsaoiThreshold] = useState("");
   const [iinRate, setIinRate] = useState("");
   const [incomeTags, setIncomeTags] = useState<string[]>([]);
   const [homeCards, setHomeCards] = useState<HomeCardPreference[]>([]);
@@ -128,6 +141,9 @@ export default function SettingsPage() {
   const [catColor, setCatColor] = useState("#6366f1");
   const [catType, setCatType] = useState<"expense" | "income">("expense");
   const [catBudgetType, setCatBudgetType] = useState<BudgetType>("needs");
+  const [catParentId, setCatParentId] = useState("");
+  const [catIsTax, setCatIsTax] = useState(false);
+  const [catError, setCatError] = useState<string | null>(null);
   const [catFilter, setCatFilter] = useState<"expense" | "income">("expense");
 
   useEffect(() => {
@@ -142,9 +158,10 @@ export default function SettingsPage() {
         setSettings(s);
         setUser(sessionUser);
         setCurrentBalance((s.currentBalance ?? 0).toString());
-        setTaxDebt((s.taxDebt ?? 0).toString());
         setCreditDebt((s.creditDebt ?? 0).toString());
         setVsaoiRate((s.vsaoiRate ?? 31.07).toString());
+        setVsaoiPensionRate((s.vsaoiPensionRate ?? 10).toString());
+        setVsaoiThreshold((s.vsaoiThreshold ?? 780).toString());
         setIinRate((s.iinRate ?? 25.5).toString());
         setIncomeTags(s.incomeTags || []);
         setHomeCards(normalizeHomeCards(s.homeCards));
@@ -161,9 +178,10 @@ export default function SettingsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           currentBalance: parseFloat(currentBalance) || 0,
-          taxDebt: parseFloat(taxDebt) || 0,
           creditDebt: parseFloat(creditDebt) || 0,
           vsaoiRate: parseFloat(vsaoiRate) || 31.07,
+          vsaoiPensionRate: parseFloat(vsaoiPensionRate) || 10,
+          vsaoiThreshold: parseFloat(vsaoiThreshold) || 780,
           iinRate: parseFloat(iinRate) || 25.5,
           incomeTags,
           homeCards,
@@ -289,6 +307,9 @@ export default function SettingsPage() {
     setCatColor("#6366f1");
     setCatType("expense");
     setCatBudgetType("needs");
+    setCatParentId("");
+    setCatIsTax(false);
+    setCatError(null);
     setCatEditId(null);
     setShowCatForm(false);
   };
@@ -299,6 +320,9 @@ export default function SettingsPage() {
     setCatColor(cat.color);
     setCatType(cat.type);
     setCatBudgetType(cat.budgetType);
+    setCatParentId(cat.parentId ? String(cat.parentId) : "");
+    setCatIsTax(Boolean(cat.isTax));
+    setCatError(null);
     setCatEditId(cat._id);
     setShowCatForm(true);
   };
@@ -312,6 +336,8 @@ export default function SettingsPage() {
         color: catColor,
         type: catType,
         budgetType: catBudgetType,
+        parentId: catParentId || null,
+        isTax: catType === "expense" && catIsTax,
       };
       let res;
       if (catEditId) {
@@ -337,9 +363,14 @@ export default function SettingsPage() {
           setCategories((prev) => [...prev, saved]);
         }
         resetCatForm();
+        await refetchCategories();
+      } else {
+        const err = await res.json().catch(() => null);
+        setCatError(err?.error || "Couldn't save category");
       }
     } catch (error) {
       console.error("Failed to save category:", error);
+      setCatError("Couldn't save category");
     }
   };
 
@@ -348,13 +379,34 @@ export default function SettingsPage() {
       const res = await fetch(`/api/categories/${id}`, { method: "DELETE" });
       if (res.ok) {
         setCategories((prev) => prev.filter((c) => c._id !== id));
+        await refetchCategories();
+      } else {
+        const err = await res.json().catch(() => null);
+        setCatError(err?.error || "Couldn't delete category");
       }
     } catch (error) {
       console.error("Failed to delete:", error);
     }
   };
 
-  const filteredCats = categories.filter((c) => c.type === catFilter);
+  const localIndex = buildCategoryIndex(categories);
+  const filteredRoots = localIndex.roots
+    .filter((c) => c.type === catFilter)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const filteredCats = filteredRoots.flatMap((root) => [
+    root,
+    ...(localIndex.children.get(root._id) ?? [])
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name)),
+  ]);
+  const parentOptions = localIndex.roots
+    .filter(
+      (c) =>
+        c.type === catType &&
+        c._id !== catEditId &&
+        !(catEditId && localIndex.children.get(catEditId)?.length),
+    )
+    .sort((a, b) => a.name.localeCompare(b.name));
   const toggleDrawer = (drawer: DrawerKey) => {
     setActiveDrawer((current) => (current === drawer ? null : drawer));
   };
@@ -474,9 +526,8 @@ export default function SettingsPage() {
   }
 
   const parsedBalance = parseFloat(currentBalance) || 0;
-  const parsedTaxDebt = parseFloat(taxDebt) || 0;
-  const parsedCreditDebt = parseFloat(creditDebt) || 0;
-  const netPosition = parsedBalance - parsedTaxDebt - parsedCreditDebt;
+  const taxToPay = Math.max(0, tax.outstanding);
+  const netPosition = parsedBalance - taxToPay - credit.outstanding;
 
   return (
     <motion.div
@@ -587,6 +638,16 @@ export default function SettingsPage() {
       </motion.div>
 
       <motion.div variants={itemVariants} className="space-y-3">
+        <DrawerSection
+          title="Quick Picks"
+          subtitle={`${liveSettings?.quickPicks?.length ?? 0} pinned shortcuts for adding entries`}
+          icon={<Zap className="h-4 w-4" />}
+          open={activeDrawer === "quick-picks"}
+          onToggle={() => toggleDrawer("quick-picks")}
+        >
+          <QuickPicksEditor />
+        </DrawerSection>
+
         <DrawerSection
           title="Main View Cards"
           subtitle={`${homeCards.filter((card) => card.enabled).length} visible cards in your current order`}
@@ -724,7 +785,7 @@ export default function SettingsPage() {
 
         <DrawerSection
           title="Balance & Debts"
-          subtitle={`${formatCurrency(parsedBalance)} balance, ${formatCurrency(parsedTaxDebt + parsedCreditDebt)} debt`}
+          subtitle={`${formatCurrency(parsedBalance)} balance, ${formatCurrency(taxToPay + credit.outstanding)} owed`}
           icon={<AlertTriangle className="h-4 w-4" />}
           open={activeDrawer === "balance-debts"}
           onToggle={() => toggleDrawer("balance-debts")}
@@ -751,28 +812,23 @@ export default function SettingsPage() {
               />
             </div>
 
-            <div>
+            <div className="rounded-xl bg-secondary/50 p-3 text-xs text-muted-foreground">
               <div className="flex items-center justify-between">
-                <label className="text-xs text-muted-foreground">Tax Debt (€)</label>
-                {settings?.taxDebtDate && (
-                  <span className="text-[10px] text-muted-foreground/60">
-                    Set {format(new Date(settings.taxDebtDate), "MMM d, yyyy")}
-                  </span>
-                )}
+                <span>Tax to pay ({year})</span>
+                <span className="font-semibold text-orange-400 tabular-nums">
+                  {formatCurrency(taxToPay)}
+                </span>
               </div>
-              <input
-                type="number"
-                value={taxDebt}
-                onChange={(e) => setTaxDebt(e.target.value)}
-                className="mt-1 w-full rounded-xl bg-secondary p-2.5 text-sm outline-none"
-                step="0.01"
-              />
+              <div className="mt-1 text-[11px]">
+                Calculated from your bruto income and write-offs, minus payments
+                in the Taxes category. Details in Insights.
+              </div>
             </div>
 
             <div>
               <div className="flex items-center justify-between">
                 <label className="text-xs text-muted-foreground">
-                  Credit Debt (€)
+                  Credit debt when set (€)
                 </label>
                 {settings?.creditDebtDate && (
                   <span className="text-[10px] text-muted-foreground/60">
@@ -787,6 +843,12 @@ export default function SettingsPage() {
                 className="mt-1 w-full rounded-xl bg-secondary p-2.5 text-sm outline-none"
                 step="0.01"
               />
+              {credit.repaid > 0 ? (
+                <div className="mt-1 text-[11px] text-muted-foreground">
+                  {formatCurrency(credit.repaid)} repaid since then ·{" "}
+                  {formatCurrency(credit.outstanding)} left
+                </div>
+              ) : null}
             </div>
 
             <div className="rounded-xl bg-secondary/50 p-3 text-sm">
@@ -807,31 +869,65 @@ export default function SettingsPage() {
 
         <DrawerSection
           title="Tax Rates"
-          subtitle={`IIN ${iinRate || "0"}% · VSAOI ${vsaoiRate || "0"}%`}
+          subtitle={`VSAOI ${vsaoiRate || "0"}% / ${vsaoiPensionRate || "0"}% · IIN ${iinRate || "0"}%`}
           icon={<Save className="h-4 w-4" />}
           open={activeDrawer === "tax-rates"}
           onToggle={() => toggleDrawer("tax-rates")}
         >
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs text-muted-foreground">IIN Rate (%)</label>
-              <input
-                type="number"
-                value={iinRate}
-                onChange={(e) => setIinRate(e.target.value)}
-                className="mt-1 w-full rounded-xl bg-secondary p-2.5 text-sm outline-none"
-                step="0.01"
-              />
-            </div>
-            <div>
-              <label className="text-xs text-muted-foreground">VSAOI Rate (%)</label>
-              <input
-                type="number"
-                value={vsaoiRate}
-                onChange={(e) => setVsaoiRate(e.target.value)}
-                className="mt-1 w-full rounded-xl bg-secondary p-2.5 text-sm outline-none"
-                step="0.01"
-              />
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              Self-employed rules, applied per month to bruto income minus
+              write-offs. Profit up to the threshold pays the pension rate only;
+              above it, the full rate applies to the threshold and the pension
+              rate to the rest.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-muted-foreground">
+                  VSAOI full rate (%)
+                </label>
+                <input
+                  type="number"
+                  value={vsaoiRate}
+                  onChange={(e) => setVsaoiRate(e.target.value)}
+                  className="mt-1 w-full rounded-xl bg-secondary p-2.5 text-sm outline-none"
+                  step="0.01"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground">
+                  VSAOI pension rate (%)
+                </label>
+                <input
+                  type="number"
+                  value={vsaoiPensionRate}
+                  onChange={(e) => setVsaoiPensionRate(e.target.value)}
+                  className="mt-1 w-full rounded-xl bg-secondary p-2.5 text-sm outline-none"
+                  step="0.01"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground">
+                  Threshold / min. wage (€)
+                </label>
+                <input
+                  type="number"
+                  value={vsaoiThreshold}
+                  onChange={(e) => setVsaoiThreshold(e.target.value)}
+                  className="mt-1 w-full rounded-xl bg-secondary p-2.5 text-sm outline-none"
+                  step="1"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground">IIN rate (%)</label>
+                <input
+                  type="number"
+                  value={iinRate}
+                  onChange={(e) => setIinRate(e.target.value)}
+                  className="mt-1 w-full rounded-xl bg-secondary p-2.5 text-sm outline-none"
+                  step="0.01"
+                />
+              </div>
             </div>
           </div>
         </DrawerSection>
@@ -980,9 +1076,29 @@ export default function SettingsPage() {
                       ))}
                     </div>
 
+                    <select
+                      value={catParentId}
+                      onChange={(e) => setCatParentId(e.target.value)}
+                      className="w-full rounded-lg bg-background/50 p-2 text-xs outline-none"
+                    >
+                      <option value="">Top-level category</option>
+                      {parentOptions.map((parent) => (
+                        <option key={parent._id} value={parent._id}>
+                          Inside {parent.emoji} {parent.name}
+                        </option>
+                      ))}
+                    </select>
+
                     {catType === "expense" && (
                       <div className="flex gap-1.5">
-                        {(["needs", "wants", "savings"] as const).map((bt) => (
+                        {(
+                          [
+                            "needs",
+                            "wants",
+                            "obligations",
+                            ...(catBudgetType === "savings" ? ["savings"] : []),
+                          ] as BudgetType[]
+                        ).map((bt) => (
                           <button
                             key={bt}
                             onClick={() => setCatBudgetType(bt)}
@@ -998,6 +1114,26 @@ export default function SettingsPage() {
                         ))}
                       </div>
                     )}
+
+                    {catType === "expense" && catBudgetType === "obligations" ? (
+                      <button
+                        type="button"
+                        onClick={() => setCatIsTax((v) => !v)}
+                        className={cn(
+                          "flex w-full items-center gap-2 rounded-lg p-2 text-[11px] transition-all",
+                          catIsTax
+                            ? "bg-orange-500/15 text-orange-400 ring-1 ring-orange-500/30"
+                            : "bg-background/50 text-muted-foreground",
+                        )}
+                      >
+                        <Check className={cn("h-3 w-3", !catIsTax && "opacity-0")} />
+                        Payments here are tax payments (count as tax paid)
+                      </button>
+                    ) : null}
+
+                    {catError ? (
+                      <div className="text-[11px] text-red-400">{catError}</div>
+                    ) : null}
 
                     <div className="flex flex-wrap gap-1">
                       {EMOJI_OPTIONS.map((e) => (
@@ -1048,7 +1184,10 @@ export default function SettingsPage() {
               {filteredCats.map((cat) => (
                 <div
                   key={cat._id}
-                  className="flex items-center gap-2.5 rounded-xl bg-secondary/50 p-2.5"
+                  className={cn(
+                    "flex items-center gap-2.5 rounded-xl bg-secondary/50 p-2.5",
+                    cat.parentId && "ml-6 bg-secondary/30",
+                  )}
                 >
                   <span
                     className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-base"
@@ -1061,6 +1200,7 @@ export default function SettingsPage() {
                     {cat.type === "expense" && (
                       <div className="text-[10px] capitalize text-muted-foreground">
                         {cat.budgetType}
+                        {cat.isTax ? " · tax" : ""}
                       </div>
                     )}
                   </div>

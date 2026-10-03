@@ -36,7 +36,7 @@ export default function AmountInput({
       pattern="[0-9]*"
       value={value ? parseFloat(value).toFixed(2) : "0.00"}
       onChange={handleChange}
-      className={cn("bg-transparent outline-none", className)}
+      className={cn("min-w-0 bg-transparent outline-none", className)}
       autoFocus={autoFocus}
     />
   );

@@ -99,12 +99,16 @@ export default function FloatingAdd() {
                   className="flex items-center justify-between py-3"
                   style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 0.75rem)" }}
                 >
-                  <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                    New {sheetType === "expense" ? "Expense" : "Income"}
+                  <div className="flex items-center gap-2 text-sm font-semibold">
+                    <span
+                      className={`h-2 w-2 rounded-full ${sheetType === "expense" ? "bg-red-500" : "bg-emerald-500"}`}
+                    />
+                    New {sheetType === "expense" ? "expense" : "income"}
                   </div>
                   <button
                     onClick={() => setSheetType(null)}
-                    className="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary"
+                    aria-label="Close"
+                    className="rounded-full bg-secondary/60 p-2 text-muted-foreground hover:text-foreground"
                   >
                     <X className="h-4 w-4" />
                   </button>

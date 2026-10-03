@@ -3,14 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "framer-motion";
-import { Home, Repeat, Calculator, Settings, Clock } from "lucide-react";
+import { Home, Target, ChartPie, Settings, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import FloatingAdd from "@/components/FloatingAdd";
 
 const navItems = [
   { href: "/", icon: Home, label: "Home" },
-  { href: "/recurring", icon: Repeat, label: "Recurring" },
-  { href: "/taxes", icon: Calculator, label: "Taxes" },
+  { href: "/plan", icon: Target, label: "Plan" },
+  { href: "/insights", icon: ChartPie, label: "Insights" },
   { href: "/history", icon: Clock, label: "History" },
   { href: "/settings", icon: Settings, label: "Settings" },
 ];
@@ -25,7 +25,9 @@ export default function Navigation() {
       <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card/80 backdrop-blur-xl border-t border-border pb-[env(safe-area-inset-bottom)]">
         <div className="max-w-lg mx-auto grid grid-cols-5 px-1 py-1">
           {navItems.map((item) => {
-            const isActive = pathname === item.href;
+            const isActive =
+              pathname === item.href ||
+              (item.href === "/plan" && pathname === "/recurring");
             return (
               <Link
                 key={item.href}

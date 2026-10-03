@@ -8,7 +8,7 @@ export interface IRecurringPayment extends Document {
   frequency: "monthly" | "quarterly" | "yearly";
   dueDay: number;
   isActive: boolean;
-  budgetType: "needs" | "wants" | "savings";
+  budgetType: "needs" | "wants" | "savings" | "obligations";
   isWriteOff: boolean;
   startDate: Date;
   createdAt: Date;
@@ -35,7 +35,7 @@ const RecurringPaymentSchema = new Schema<IRecurringPayment>({
   startDate: { type: Date, default: () => new Date(2026, 0, 1) },
   budgetType: {
     type: String,
-    enum: ["needs", "wants", "savings"],
+    enum: ["needs", "wants", "savings", "obligations"],
     default: "needs",
   },
   createdAt: { type: Date, default: Date.now },

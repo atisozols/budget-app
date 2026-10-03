@@ -12,6 +12,7 @@ export interface ITransaction extends Document {
   isWriteOff: boolean;
   recurringPaymentId?: mongoose.Types.ObjectId;
   debtPayment?: "tax" | "credit";
+  taxYear?: number;
   createdAt: Date;
 }
 
@@ -31,7 +32,11 @@ const TransactionSchema = new Schema<ITransaction>({
   incomeType: { type: String, enum: ["bruto", "neto"] },
   isWriteOff: { type: Boolean, default: false },
   recurringPaymentId: { type: Schema.Types.ObjectId, ref: "RecurringPayment" },
+  // Legacy flag; debt and tax tracking now comes from categories.
   debtPayment: { type: String, enum: ["tax", "credit"] },
+  // Tax payments only: which year's tax this settles (defaults to the
+  // payment date's year when unset).
+  taxYear: { type: Number },
   createdAt: { type: Date, default: Date.now },
 });
 

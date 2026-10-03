@@ -1,6 +1,13 @@
 import type { TransactionType, RecurringPaymentType } from "@/lib/types";
 import type { SpendWidgetDay } from "@/lib/spendInsights";
-import { isSpendWidgetExpense } from "@/lib/spendInsights";
+import {
+  type CategoryIndex,
+  isLifestyleExpense,
+  isTaxPayment,
+  resolveCategory,
+  rootOf,
+} from "@/lib/categories";
+import { logicalToday, txDateKey, txMonthKey } from "@/lib/dates";
 
 // ─── Category trends (month-over-month, same day range) ─────────────
 
@@ -16,13 +23,10 @@ export interface CategoryTrend {
   sparkline: number[]; // last 6 months of totals, current month-to-date last
 }
 
-function isTrendExpense(t: TransactionType) {
-  return t.type === "expense" && !t.debtPayment;
-}
-
 export function computeCategoryTrends(
   transactions: TransactionType[],
-  referenceDate: Date = new Date(),
+  index: CategoryIndex,
+  referenceDate: Date = logicalToday(),
   limit = 5,
 ): CategoryTrend[] {
   const year = referenceDate.getFullYear();
@@ -39,22 +43,21 @@ export function computeCategoryTrends(
   }
   const buckets = new Map<string, Bucket>();
 
-  const monthOffset = (d: Date) =>
-    (year - d.getFullYear()) * 12 + (month - d.getMonth());
-
   for (const t of transactions) {
-    if (!isTrendExpense(t)) continue;
-    const d = new Date(t.date);
-    const offset = monthOffset(d);
+    if (!isLifestyleExpense(t, index)) continue;
+    const key = txDateKey(t.date);
+    const offset =
+      (year - Number(key.slice(0, 4))) * 12 + (month - (Number(key.slice(5, 7)) - 1));
     if (offset < 0 || offset > 5) continue;
 
-    const catId = t.categoryId?._id || "unknown";
+    const root = rootOf(t.categoryId, index);
+    const catId = root?._id || "unknown";
     let bucket = buckets.get(catId);
     if (!bucket) {
       bucket = {
-        name: t.categoryId?.name || "Unknown",
-        emoji: t.categoryId?.emoji || "📦",
-        color: t.categoryId?.color || "#6366f1",
+        name: root?.name || "Unknown",
+        emoji: root?.emoji || "📦",
+        color: root?.color || "#6366f1",
         current: 0,
         previous: 0,
         monthly: [0, 0, 0, 0, 0, 0],
@@ -66,7 +69,7 @@ export function computeCategoryTrends(
 
     if (offset === 0) {
       bucket.current += t.amount;
-    } else if (offset === 1 && d.getDate() <= dayOfMonth) {
+    } else if (offset === 1 && Number(key.slice(8, 10)) <= dayOfMonth) {
       // Compare against the same day range of last month
       bucket.previous += t.amount;
     }
@@ -110,30 +113,20 @@ export interface MonthForecast {
   daysInMonth: number;
 }
 
-function isRecurringDueInMonth(
-  payment: RecurringPaymentType,
-  year: number,
-  month: number,
-) {
-  if (!payment.startDate) return true;
-  const start = new Date(payment.startDate);
-  const offset = (year - start.getFullYear()) * 12 + (month - start.getMonth());
-  if (offset < 0) return false;
-  if (payment.frequency === "quarterly") return offset % 3 === 0;
-  if (payment.frequency === "yearly") return offset % 12 === 0;
-  return true;
-}
-
 export function computeMonthForecast(
   transactions: TransactionType[],
   recurring: RecurringPaymentType[],
-  referenceDate: Date = new Date(),
+  index: CategoryIndex,
+  referenceDate: Date = logicalToday(),
 ): MonthForecast {
   const year = referenceDate.getFullYear();
   const month = referenceDate.getMonth();
   const dayOfMonth = referenceDate.getDate();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const daysRemaining = daysInMonth - dayOfMonth;
+  const currentKey = `${year}-${String(month + 1).padStart(2, "0")}`;
+  const prev = new Date(year, month - 1, 1);
+  const previousKey = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}`;
 
   let spentSoFar = 0;
   let variableSpent = 0;
@@ -141,20 +134,14 @@ export function computeMonthForecast(
   let lastMonthTotal = 0;
 
   for (const t of transactions) {
-    if (t.type !== "expense") continue;
-    const d = new Date(t.date);
-    if (d.getFullYear() === year && d.getMonth() === month) {
+    if (t.type !== "expense" || isTaxPayment(t, index)) continue;
+    const key = txMonthKey(t.date);
+    if (key === currentKey) {
       spentSoFar += t.amount;
-      if (t.recurringPaymentId) paidRecurringIds.add(t.recurringPaymentId);
-      if (!t.recurringPaymentId && !t.debtPayment) variableSpent += t.amount;
-    } else {
-      const prev = new Date(year, month - 1, 1);
-      if (
-        d.getFullYear() === prev.getFullYear() &&
-        d.getMonth() === prev.getMonth()
-      ) {
-        lastMonthTotal += t.amount;
-      }
+      if (t.recurringPaymentId) paidRecurringIds.add(String(t.recurringPaymentId));
+      else if (isLifestyleExpense(t, index)) variableSpent += t.amount;
+    } else if (key === previousKey) {
+      lastMonthTotal += t.amount;
     }
   }
 
@@ -162,7 +149,7 @@ export function computeMonthForecast(
     (p) =>
       p.isActive &&
       !paidRecurringIds.has(p._id) &&
-      isRecurringDueInMonth(p, year, month),
+      (!p.startDate || txMonthKey(p.startDate) <= currentKey),
   );
   const unpaidRecurringTotal = unpaidRecurring.reduce(
     (s, p) => s + p.amount,
@@ -188,85 +175,6 @@ export function computeMonthForecast(
     daysElapsed: dayOfMonth,
     daysRemaining,
     daysInMonth,
-  };
-}
-
-// ─── Weekly digest (rolling 7 days) ──────────────────────────────────
-
-export interface WeeklyDigest {
-  total: number;
-  prevTotal: number;
-  pctChange: number | null;
-  avgPerDay: number;
-  bestDay: { date: Date; spend: number } | null;
-  worstDay: { date: Date; spend: number } | null;
-  topCategory: {
-    name: string;
-    emoji: string;
-    color: string;
-    amount: number;
-    share: number;
-  } | null;
-  days: { date: Date; spend: number }[];
-}
-
-export function computeWeeklyDigest(
-  transactions: TransactionType[],
-  dailySeries: SpendWidgetDay[],
-): WeeklyDigest {
-  const last7 = dailySeries.slice(-7);
-  const prev7 = dailySeries.slice(-14, -7);
-
-  const total = last7.reduce((s, d) => s + d.spend, 0);
-  const prevTotal = prev7.reduce((s, d) => s + d.spend, 0);
-
-  let bestDay: WeeklyDigest["bestDay"] = null;
-  let worstDay: WeeklyDigest["worstDay"] = null;
-  for (const day of last7) {
-    if (!bestDay || day.spend < bestDay.spend) {
-      bestDay = { date: day.date, spend: day.spend };
-    }
-    if (!worstDay || day.spend > worstDay.spend) {
-      worstDay = { date: day.date, spend: day.spend };
-    }
-  }
-
-  const windowKeys = new Set(last7.map((d) => d.dateKey));
-  const byCategory = new Map<
-    string,
-    { name: string; emoji: string; color: string; amount: number }
-  >();
-  for (const t of transactions) {
-    if (!isSpendWidgetExpense(t)) continue;
-    const d = new Date(t.date);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    if (!windowKeys.has(key)) continue;
-    const catId = t.categoryId?._id || "unknown";
-    const existing = byCategory.get(catId);
-    if (existing) {
-      existing.amount += t.amount;
-    } else {
-      byCategory.set(catId, {
-        name: t.categoryId?.name || "Unknown",
-        emoji: t.categoryId?.emoji || "📦",
-        color: t.categoryId?.color || "#6366f1",
-        amount: t.amount,
-      });
-    }
-  }
-  const top = [...byCategory.values()].sort((a, b) => b.amount - a.amount)[0];
-
-  return {
-    total,
-    prevTotal,
-    pctChange: prevTotal > 0 ? ((total - prevTotal) / prevTotal) * 100 : null,
-    avgPerDay: last7.length > 0 ? total / last7.length : 0,
-    bestDay,
-    worstDay,
-    topCategory: top
-      ? { ...top, share: total > 0 ? (top.amount / total) * 100 : 0 }
-      : null,
-    days: last7.map((d) => ({ date: d.date, spend: d.spend })),
   };
 }
 
@@ -300,13 +208,17 @@ export function healthColor(score: number) {
 }
 
 export function computeHealthScore(params: {
+  /** All transactions (prior years give the income baseline in Q1). */
   transactions: TransactionType[];
   dailySeries: SpendWidgetDay[];
   totalDebt: number;
+  /** Tax owed on this year's bruto income so far. */
+  yearTaxOwed: number;
+  index: CategoryIndex;
   referenceDate?: Date;
 }): HealthResult {
-  const { transactions, dailySeries, totalDebt } = params;
-  const now = params.referenceDate ?? new Date();
+  const { transactions, dailySeries, totalDebt, yearTaxOwed, index } = params;
+  const now = params.referenceDate ?? logicalToday();
   const year = now.getFullYear();
   const month = now.getMonth();
   const dayOfMonth = now.getDate();
@@ -320,21 +232,22 @@ export function computeHealthScore(params: {
   let yearExpense = 0;
   let needsSpend = 0;
   let wantsSpend = 0;
-  let savingsSpend = 0;
 
   for (const t of transactions) {
-    const d = new Date(t.date);
-    const offset = (year - d.getFullYear()) * 12 + (month - d.getMonth());
+    const key = txDateKey(t.date);
+    const offset =
+      (year - Number(key.slice(0, 4))) * 12 + (month - (Number(key.slice(5, 7)) - 1));
+    const inYear = Number(key.slice(0, 4)) === year && offset >= 0;
     if (t.type === "income") {
-      yearIncome += t.amount;
+      if (inYear) yearIncome += t.amount;
       if (offset === 0) currentIncome += t.amount;
       else if (offset >= 1 && offset <= 3) prevIncomes[offset - 1] += t.amount;
-    } else {
+    } else if (inYear && !isTaxPayment(t, index)) {
+      // Tax is accounted for as owed (yearTaxOwed), not as payments made.
       yearExpense += t.amount;
-      const bt = t.categoryId?.budgetType;
+      const bt = resolveCategory(t.categoryId, index)?.budgetType;
       if (bt === "needs") needsSpend += t.amount;
       else if (bt === "wants") wantsSpend += t.amount;
-      else if (bt === "savings") savingsSpend += t.amount;
     }
   }
 
@@ -379,11 +292,11 @@ export function computeHealthScore(params: {
     }
   }
 
-  // 3. Savings rate — year to date
+  // 3. Savings rate — year to date, after tax owed
   let savingsScore = 50;
   let savingsDetail = "No income recorded";
   if (yearIncome > 0) {
-    const rate = (yearIncome - yearExpense) / yearIncome;
+    const rate = (yearIncome - yearTaxOwed - yearExpense) / yearIncome;
     savingsScore = clamp(25 + rate * 375);
     savingsDetail = `${(rate * 100).toFixed(0)}% of income kept this year`;
   }
@@ -402,21 +315,22 @@ export function computeHealthScore(params: {
         : `Debt is ${(dti * 100).toFixed(0)}% of yearly income`;
   }
 
-  // 5. Budget adherence — 50/30/20 split
+  // 5. Budget adherence — needs ≤ 50%, wants ≤ 30%, kept ≥ 20% of
+  // after-tax income
   let budgetScore = 50;
   let budgetDetail = "No expenses recorded";
-  const splitTotal = needsSpend + wantsSpend + savingsSpend;
-  if (splitTotal > 0 && yearIncome > 0) {
-    const needsRatio = (needsSpend / yearIncome) * 100;
-    const wantsRatio = (wantsSpend / yearIncome) * 100;
-    const savingsRatio = (savingsSpend / yearIncome) * 100;
+  const afterTaxIncome = yearIncome - yearTaxOwed;
+  if (needsSpend + wantsSpend > 0 && afterTaxIncome > 0) {
+    const needsRatio = (needsSpend / afterTaxIncome) * 100;
+    const wantsRatio = (wantsSpend / afterTaxIncome) * 100;
+    const keptRatio = ((afterTaxIncome - yearExpense) / afterTaxIncome) * 100;
     const avgDiff =
-      (Math.abs(needsRatio - 50) +
-        Math.abs(wantsRatio - 30) +
-        Math.abs(savingsRatio - 20)) /
+      (Math.max(0, needsRatio - 50) +
+        Math.max(0, wantsRatio - 30) +
+        Math.max(0, 20 - keptRatio)) /
       3;
     budgetScore = clamp(100 - avgDiff * 3);
-    budgetDetail = `${avgDiff.toFixed(0)}pt average drift from 50/30/20`;
+    budgetDetail = `Needs ${needsRatio.toFixed(0)}% · wants ${wantsRatio.toFixed(0)}% · kept ${keptRatio.toFixed(0)}%`;
   }
 
   const factors: HealthFactor[] = [

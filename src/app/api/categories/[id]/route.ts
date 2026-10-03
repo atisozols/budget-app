@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectToDatabase } from "@/lib/mongodb";
 import Category from "@/lib/models/Category";
 import { getUserId } from "@/lib/auth";
+import { sanitizeCategoryFields } from "@/lib/categoryPayload";
 
 export async function PUT(
   request: NextRequest,
@@ -15,12 +16,21 @@ export async function PUT(
 
     await connectToDatabase();
     const { id } = await params;
-    const body = { ...(await request.json()) } as Record<string, unknown>;
-    delete body._id;
-    delete body.userId;
-    const category = await Category.findOneAndUpdate({ _id: id, userId }, body, {
-      new: true,
-    }).lean();
+    const body = (await request.json()) as Record<string, unknown>;
+    let fields: Record<string, unknown>;
+    try {
+      fields = await sanitizeCategoryFields(body, userId, id);
+    } catch (validationError) {
+      return NextResponse.json(
+        { error: (validationError as Error).message },
+        { status: 400 },
+      );
+    }
+    const category = await Category.findOneAndUpdate(
+      { _id: id, userId },
+      { $set: fields },
+      { new: true },
+    ).lean();
 
     if (!category) {
       return NextResponse.json(
@@ -51,6 +61,13 @@ export async function DELETE(
 
     await connectToDatabase();
     const { id } = await params;
+    const hasChildren = await Category.exists({ userId, parentId: id });
+    if (hasChildren) {
+      return NextResponse.json(
+        { error: "Delete or move its subcategories first" },
+        { status: 400 },
+      );
+    }
     const category = await Category.findOneAndDelete({ _id: id, userId });
 
     if (!category) {

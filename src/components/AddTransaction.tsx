@@ -2,10 +2,19 @@
 
 import { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Calendar, Check, ChevronLeft, Delete, FileText } from "lucide-react";
+import { Calendar, Check, ChevronLeft, Delete, FileText, X } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 import { IncomeType } from "@/lib/types";
 import { useAppData } from "@/lib/AppDataContext";
+import CategoryPicker from "@/components/CategoryPicker";
+import { FieldLabel, Pill, Segmented, Switch } from "@/components/ui";
+import { categoryLabel } from "@/lib/categories";
+import {
+  dateKeyToDate,
+  logicalTodayKey,
+  shiftDateKey,
+  txDateKey,
+} from "@/lib/dates";
 
 interface AddTransactionProps {
   initialType?: "expense" | "income";
@@ -13,6 +22,24 @@ interface AddTransactionProps {
 }
 
 type ComposerStep = "amount" | "details";
+
+interface QuickPickOption {
+  key: string;
+  categoryId: string;
+  description: string;
+  isWriteOff: boolean;
+  incomeType?: IncomeType;
+  pinned: boolean;
+}
+
+interface Remembered {
+  text: string;
+  count: number;
+  categoryId: string;
+  lastKey: string;
+  isWriteOff: boolean;
+  incomeType?: IncomeType;
+}
 
 function amountFromDigits(digits: string) {
   if (!digits) return "";
@@ -25,96 +52,218 @@ function digitsFromAmount(value: string) {
 
 const keypadKeys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "C", "0", "⌫"];
 
+function openNativeDatePicker(value: string, onPick: (value: string) => void) {
+  const input = document.createElement("input");
+  input.type = "date";
+  input.value = value;
+  input.style.cssText = "position:fixed;opacity:0;top:50%;left:50%";
+  document.body.appendChild(input);
+  const cleanup = () => {
+    try {
+      input.remove();
+    } catch {
+      /* noop */
+    }
+  };
+  input.addEventListener("change", (event) => {
+    onPick((event.target as HTMLInputElement).value);
+    cleanup();
+  });
+  input.addEventListener("blur", cleanup);
+  input.showPicker?.();
+  input.focus();
+}
+
 export default function AddTransaction({
   initialType = "expense",
   onSuccess,
 }: AddTransactionProps) {
-  const { categories, settings, transactions } = useAppData();
+  const { settings, allTransactions, categoryIndex } = useAppData();
   const [type] = useState<"expense" | "income">(initialType);
   const [step, setStep] = useState<ComposerStep>("amount");
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
-  const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
+  const [date, setDate] = useState(() => logicalTodayKey());
   const [categoryId, setCategoryId] = useState("");
   const [isWriteOff, setIsWriteOff] = useState(false);
-  const [debtPayment, setDebtPayment] = useState<"tax" | "credit" | "">("");
+  const [taxYear, setTaxYear] = useState<number | null>(null);
   const [incomeType, setIncomeType] = useState<IncomeType>("neto");
   const [tags, setTags] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
+  const isExpense = type === "expense";
   const availableTags = settings?.incomeTags || [];
+  const selectedCategory = categoryId
+    ? categoryIndex.byId.get(categoryId)
+    : undefined;
+  const isTaxCategory = Boolean(selectedCategory?.isTax);
+  const dateYear = Number(date.slice(0, 4));
+  const effectiveTaxYear = taxYear ?? dateYear;
+  const numericAmount = parseFloat(amount || "0");
 
-  const filteredCategories = useMemo(() => {
-    const freq = new Map<string, number>();
-    for (const transaction of transactions) {
-      if (transaction.type === type) {
-        const id = transaction.categoryId?._id;
-        if (id) {
-          freq.set(id, (freq.get(id) || 0) + 1);
-        }
+  // Past descriptions → how they were logged last time.
+  const memory = useMemo(() => {
+    const map = new Map<string, Remembered>();
+    for (const t of allTransactions) {
+      if (t.type !== type) continue;
+      const text = t.description?.trim();
+      if (!text || !t.categoryId?._id) continue;
+      const normalized = text.toLowerCase();
+      const key = txDateKey(t.date);
+      const entry = map.get(normalized);
+      if (!entry || key > entry.lastKey) {
+        map.set(normalized, {
+          text,
+          count: (entry?.count ?? 0) + 1,
+          categoryId: t.categoryId._id,
+          lastKey: key,
+          isWriteOff: t.isWriteOff,
+          incomeType: t.incomeType,
+        });
+      } else {
+        entry.count++;
       }
     }
+    return map;
+  }, [allTransactions, type]);
 
-    return categories
-      .filter((category) => category.type === type)
-      .sort((a, b) => (freq.get(b._id) || 0) - (freq.get(a._id) || 0));
-  }, [categories, transactions, type]);
+  // Quick picks: pinned ones from Settings first, then the combinations you
+  // log most (category + description + write-off/income type), including
+  // entries without a description.
+  const quickPicks = useMemo(() => {
+    const picks: QuickPickOption[] = [];
+    const seen = new Set<string>();
+    const keyOf = (categoryId: string, description?: string) =>
+      `${categoryId}|${(description ?? "").trim().toLowerCase()}`;
 
-  const dateShortcuts = [
-    { label: "Today", offset: 0 },
-    { label: "Yesterday", offset: -1 },
-    { label: "2d ago", offset: -2 },
-  ];
+    for (const pin of settings?.quickPicks ?? []) {
+      const category = categoryIndex.byId.get(String(pin.categoryId));
+      if (!category || category.type !== type) continue;
+      const key = keyOf(category._id, pin.description);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      picks.push({
+        key,
+        categoryId: category._id,
+        description: pin.description ?? "",
+        isWriteOff: Boolean(pin.isWriteOff),
+        incomeType: pin.incomeType,
+        pinned: true,
+      });
+    }
+
+    const cutoff = shiftDateKey(logicalTodayKey(), -90);
+    const combos = new Map<string, QuickPickOption & { count: number }>();
+    for (const t of allTransactions) {
+      if (t.type !== type || !t.categoryId?._id) continue;
+      if (txDateKey(t.date) < cutoff) continue;
+      if (!categoryIndex.byId.has(t.categoryId._id)) continue;
+      const description = t.description?.trim() ?? "";
+      const key = keyOf(t.categoryId._id, description);
+      const combo = combos.get(key);
+      if (combo) {
+        combo.count++;
+      } else {
+        combos.set(key, {
+          key,
+          categoryId: t.categoryId._id,
+          description,
+          isWriteOff: t.isWriteOff,
+          incomeType: t.incomeType,
+          pinned: false,
+          count: 1,
+        });
+      }
+    }
+    for (const combo of [...combos.values()].sort((a, b) => b.count - a.count)) {
+      if (picks.length >= 10) break;
+      if (combo.count < 3 || seen.has(combo.key)) continue;
+      seen.add(combo.key);
+      picks.push(combo);
+    }
+    return picks;
+  }, [settings, allTransactions, categoryIndex, type]);
+
+  const suggestions = useMemo(() => {
+    const query = description.trim().toLowerCase();
+    if (!query) return [];
+    return [...memory.entries()]
+      .filter(
+        ([normalized, entry]) =>
+          normalized !== query &&
+          normalized.includes(query) &&
+          categoryIndex.byId.has(entry.categoryId),
+      )
+      .sort(([aKey, a], [bKey, b]) => {
+        const aStarts = aKey.startsWith(query) ? 1 : 0;
+        const bStarts = bKey.startsWith(query) ? 1 : 0;
+        return bStarts - aStarts || b.count - a.count;
+      })
+      .slice(0, 4)
+      .map(([, entry]) => entry);
+  }, [description, memory, categoryIndex]);
+
+  const applyRemembered = (entry: Remembered) => {
+    setDescription(entry.text);
+    setCategoryId(entry.categoryId);
+    if (isExpense) setIsWriteOff(entry.isWriteOff);
+    else if (entry.incomeType) setIncomeType(entry.incomeType);
+  };
+
+  const applyPick = (pick: QuickPickOption) => {
+    setCategoryId(pick.categoryId);
+    setDescription(pick.description);
+    if (isExpense) setIsWriteOff(pick.isWriteOff);
+    else if (pick.incomeType) setIncomeType(pick.incomeType);
+  };
+
+  const pickedQuick = quickPicks.find(
+    (pick) =>
+      pick.categoryId === categoryId &&
+      pick.description.toLowerCase() === description.trim().toLowerCase() &&
+      (!isExpense || pick.isWriteOff === isWriteOff),
+  );
+
+  const handleDescriptionChange = (text: string) => {
+    setDescription(text);
+    if (categoryId) return;
+    const match = memory.get(text.trim().toLowerCase());
+    if (match && categoryIndex.byId.has(match.categoryId)) {
+      applyRemembered({ ...match, text });
+    }
+  };
+
+  const todayKey = logicalTodayKey();
+  const yesterdayKey = shiftDateKey(todayKey, -1);
+  const dateMode =
+    date === todayKey ? "today" : date === yesterdayKey ? "yesterday" : "other";
 
   const appendDigit = (digit: string) => {
     const nextDigits = `${digitsFromAmount(amount)}${digit}`.replace(/^0+/, "");
+    if (nextDigits.length > 9) return;
     setAmount(amountFromDigits(nextDigits));
-  };
-
-  const deleteDigit = () => {
-    const nextDigits = digitsFromAmount(amount).slice(0, -1);
-    setAmount(amountFromDigits(nextDigits));
-  };
-
-  const clearAmount = () => {
-    setAmount("");
-  };
-
-  const resetForm = () => {
-    setStep("amount");
-    setAmount("");
-    setDescription("");
-    setDate(new Date().toISOString().split("T")[0]);
-    setCategoryId("");
-    setIsWriteOff(false);
-    setDebtPayment("");
-    setIncomeType("neto");
-    setTags([]);
-    setSaved(false);
   };
 
   const handleSubmit = async () => {
     if (!amount || !categoryId) return;
 
     setSaving(true);
+    setError(null);
     try {
       const body: Record<string, unknown> = {
-        amount: parseFloat(amount),
+        amount: numericAmount,
         type,
         categoryId,
-        description,
-        date: new Date(date),
-        isWriteOff: type === "expense" ? isWriteOff : false,
-        tags: type === "income" ? tags : [],
+        description: description.trim(),
+        date,
+        isWriteOff: isExpense && !isTaxCategory ? isWriteOff : false,
+        tags: isExpense ? [] : tags,
       };
-
-      if (type === "income") {
-        body.incomeType = incomeType;
-      }
-
-      if (type === "expense" && debtPayment) {
-        body.debtPayment = debtPayment;
+      if (!isExpense) body.incomeType = incomeType;
+      if (isTaxCategory && effectiveTaxYear !== dateYear) {
+        body.taxYear = effectiveTaxYear;
       }
 
       const response = await fetch("/api/transactions", {
@@ -123,425 +272,349 @@ export default function AddTransaction({
         body: JSON.stringify(body),
       });
 
-      if (response.ok) {
-        setSaved(true);
-        setTimeout(() => {
-          if (onSuccess) {
-            onSuccess();
-            return;
-          }
-
-          resetForm();
-        }, 900);
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        setError(data?.error || "Couldn't save");
+        return;
       }
-    } catch (error) {
-      console.error("Failed to save transaction:", error);
+      setSaved(true);
+      setTimeout(() => onSuccess?.(), 700);
+    } catch (e) {
+      console.error("Failed to save transaction:", e);
+      setError("Couldn't save");
     } finally {
       setSaving(false);
     }
   };
 
-  const openDatePicker = () => {
-    const input = document.createElement("input");
-    input.type = "date";
-    input.value = date;
-    input.style.cssText = "position:fixed;opacity:0;top:50%;left:50%";
-    document.body.appendChild(input);
+  const accent = isExpense
+    ? "bg-red-500 text-white hover:bg-red-600"
+    : "bg-emerald-500 text-white hover:bg-emerald-600";
 
-    const cleanup = () => {
-      try {
-        input.remove();
-      } catch {
-        /* noop */
-      }
-    };
-
-    input.addEventListener("change", (event) => {
-      setDate((event.target as HTMLInputElement).value);
-      cleanup();
-    });
-    input.addEventListener("blur", cleanup);
-    input.showPicker?.();
-    input.focus();
-  };
+  const renderSubmit = (label: string) => (
+    <motion.button
+      type="button"
+      whileTap={{ scale: 0.98 }}
+      onClick={handleSubmit}
+      disabled={!amount || !categoryId || saving || saved}
+      className={cn(
+        "flex h-12 flex-1 items-center justify-center gap-2 rounded-2xl text-sm font-semibold transition-colors",
+        saved
+          ? "bg-emerald-500 text-white"
+          : !amount || !categoryId
+            ? "cursor-not-allowed bg-secondary text-muted-foreground"
+            : accent,
+      )}
+    >
+      {saved ? (
+        <>
+          <Check className="h-4 w-4" />
+          Saved
+        </>
+      ) : saving ? (
+        "Saving..."
+      ) : (
+        label
+      )}
+    </motion.button>
+  );
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <AnimatePresence mode="wait">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <AnimatePresence mode="wait" initial={false}>
         {step === "amount" ? (
           <motion.div
             key="amount-step"
-            initial={{ opacity: 0, y: 18 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -18 }}
-            transition={{ duration: 0.24 }}
+            initial={{ opacity: 0, x: -16 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -16 }}
+            transition={{ duration: 0.18 }}
             className="flex min-h-0 flex-1 flex-col"
           >
-            <div className="flex flex-1 flex-col justify-between gap-4 pb-4">
-              <div
-                className={cn(
-                  "rounded-[28px] border px-4 py-5",
-                  type === "expense"
-                    ? "border-red-500/15 bg-red-500/5"
-                    : "border-emerald-500/15 bg-emerald-500/5",
-                )}
-              >
-                <div className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
-                  {type === "expense" ? "New expense" : "New income"}
-                </div>
-                <div className="mt-3 flex items-end justify-center gap-2">
-                  <span className="pb-1.5 text-xl text-muted-foreground/50">€</span>
-                  <div className="min-w-0 text-center text-5xl font-bold tabular-nums tracking-tight sm:text-6xl">
-                    {amount ? parseFloat(amount).toFixed(2) : "0.00"}
-                  </div>
-                </div>
-                <div className="mt-2 text-center text-sm text-muted-foreground">
-                  Enter the amount first, then we&apos;ll add the details.
-                </div>
+            {/* Amount */}
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 py-4">
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-2xl text-muted-foreground/60">€</span>
+                <span
+                  className={cn(
+                    "text-6xl font-bold tabular-nums tracking-tight",
+                    !amount && "text-muted-foreground/40",
+                  )}
+                >
+                  {amount ? numericAmount.toFixed(2) : "0.00"}
+                </span>
               </div>
+              {selectedCategory ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCategoryId("");
+                    setDescription("");
+                  }}
+                  className="flex max-w-full items-center gap-2 rounded-full bg-secondary/70 py-1.5 pl-2.5 pr-2 text-xs"
+                >
+                  <span>{selectedCategory.emoji}</span>
+                  <span className="truncate">
+                    {description ? `${description} · ` : ""}
+                    <span className="text-muted-foreground">
+                      {categoryLabel(selectedCategory, categoryIndex)}
+                    </span>
+                  </span>
+                  <X className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                </button>
+              ) : (
+                <span className="text-xs text-muted-foreground">
+                  {isExpense ? "How much did you spend?" : "How much came in?"}
+                </span>
+              )}
+            </div>
 
-              <div className="mt-auto">
+            {/* Quick picks */}
+            {quickPicks.length > 0 ? (
+              <div className="-mx-4 mb-3 flex gap-1.5 overflow-x-auto px-4 scrollbar-none">
+                {quickPicks.map((pick) => {
+                  const category = categoryIndex.byId.get(pick.categoryId);
+                  const selected = pickedQuick?.key === pick.key;
+                  return (
+                    <Pill
+                      key={pick.key}
+                      selected={selected}
+                      onClick={() => {
+                        if (selected) {
+                          setCategoryId("");
+                          setDescription("");
+                          setIsWriteOff(false);
+                        } else {
+                          applyPick(pick);
+                        }
+                      }}
+                    >
+                      <span>{category?.emoji ?? "📦"}</span>
+                      {pick.description || category?.name}
+                      {isExpense && pick.isWriteOff ? (
+                        <FileText className="h-3 w-3 text-amber-400" />
+                      ) : null}
+                    </Pill>
+                  );
+                })}
+              </div>
+            ) : null}
+
+            {/* Keypad */}
+            <div className="grid grid-cols-3 gap-1.5">
+              {keypadKeys.map((key) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => {
+                    if (key === "C") setAmount("");
+                    else if (key === "⌫")
+                      setAmount(amountFromDigits(digitsFromAmount(amount).slice(0, -1)));
+                    else appendDigit(key);
+                  }}
+                  className={cn(
+                    "flex h-14 items-center justify-center rounded-2xl bg-secondary/40 text-xl font-medium transition-colors active:bg-secondary",
+                    key === "C" && "text-base text-muted-foreground",
+                  )}
+                >
+                  {key === "⌫" ? <Delete className="h-5 w-5" /> : key}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex gap-2 pb-[calc(env(safe-area-inset-bottom,0px)+1rem)] pt-3">
+              {categoryId ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setStep("details")}
+                    className="h-12 rounded-2xl bg-secondary px-4 text-sm font-medium text-muted-foreground hover:text-foreground"
+                  >
+                    Details
+                  </button>
+                  {renderSubmit(
+                    amount ? `Add ${formatCurrency(numericAmount)}` : "Enter amount",
+                  )}
+                </>
+              ) : (
                 <motion.button
+                  type="button"
                   whileTap={{ scale: 0.98 }}
                   onClick={() => setStep("details")}
                   disabled={!amount}
                   className={cn(
-                    "mb-3 w-full rounded-2xl py-3 font-semibold text-sm transition-all",
-                    !amount
-                      ? "cursor-not-allowed bg-secondary text-muted-foreground"
-                      : type === "expense"
-                        ? "bg-red-500 text-white hover:bg-red-600"
-                        : "bg-emerald-500 text-white hover:bg-emerald-600",
+                    "h-12 flex-1 rounded-2xl text-sm font-semibold transition-colors",
+                    amount ? accent : "cursor-not-allowed bg-secondary text-muted-foreground",
                   )}
                 >
-                  Continue
+                  Choose category
                 </motion.button>
-
-                <div className="grid grid-cols-3 gap-2">
-                  {keypadKeys.map((key) => (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => {
-                        if (key === "C") {
-                          clearAmount();
-                          return;
-                        }
-                        if (key === "⌫") {
-                          deleteDigit();
-                          return;
-                        }
-                        appendDigit(key);
-                      }}
-                      className={cn(
-                        "flex h-12 items-center justify-center rounded-2xl border border-border/60 bg-card text-lg font-semibold transition-colors active:scale-[0.98] sm:h-14",
-                        key === "C" && "text-muted-foreground",
-                      )}
-                    >
-                      {key === "⌫" ? <Delete className="h-5 w-5" /> : key}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              )}
             </div>
           </motion.div>
         ) : (
           <motion.div
             key="details-step"
-            initial={{ opacity: 0, y: 18 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -18 }}
-            transition={{ duration: 0.24 }}
+            initial={{ opacity: 0, x: 16 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 16 }}
+            transition={{ duration: 0.18 }}
             className="flex min-h-0 flex-1 flex-col"
           >
-            <div className="flex items-center gap-2 pb-3">
+            <div className="flex items-center justify-between pb-3">
               <button
                 type="button"
                 onClick={() => setStep("amount")}
-                className="rounded-xl bg-secondary/50 p-2 text-muted-foreground transition-colors hover:text-foreground"
+                className="flex items-center gap-1 rounded-xl py-1.5 pr-2 text-sm text-muted-foreground hover:text-foreground"
               >
                 <ChevronLeft className="h-4 w-4" />
+                Amount
               </button>
-              <div className="min-w-0 flex-1">
-                <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                  Details
-                </div>
-                <div className="truncate text-sm font-medium">
-                  {type === "expense" ? "Finish your expense" : "Finish your income"}
-                </div>
-              </div>
               <button
                 type="button"
                 onClick={() => setStep("amount")}
                 className={cn(
-                  "rounded-2xl px-3 py-2 text-sm font-semibold tabular-nums",
-                  type === "expense"
-                    ? "bg-red-500/10 text-red-400"
-                    : "bg-emerald-500/10 text-emerald-400",
+                  "text-2xl font-bold tabular-nums",
+                  isExpense ? "text-red-400" : "text-emerald-400",
                 )}
               >
-                {formatCurrency(parseFloat(amount || "0"))}
+                {formatCurrency(numericAmount)}
               </button>
             </div>
 
-            <div className="flex min-h-0 flex-1 flex-col justify-between gap-4">
-              <div className="space-y-3 overflow-y-auto pb-3">
-                <div className="min-w-0">
-                  <div className="mb-2 text-[10px] uppercase tracking-wider text-muted-foreground">
-                    Category
-                  </div>
-                  <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
-                    {filteredCategories.map((category) => (
-                      <button
-                        key={category._id}
-                        type="button"
-                        onClick={() => setCategoryId(category._id)}
-                        className={cn(
-                          "shrink-0 rounded-2xl px-2.5 py-2 transition-all",
-                          categoryId === category._id
-                            ? "bg-primary/10 ring-1.5 ring-primary"
-                            : "bg-secondary/60",
-                        )}
-                      >
-                        <div className="flex flex-col items-center gap-1">
-                          <span
-                            className="flex h-9 w-9 items-center justify-center rounded-xl text-base"
-                            style={{ backgroundColor: category.color + "20" }}
-                          >
-                            {category.emoji}
-                          </span>
-                          <span className="whitespace-nowrap text-[9px] font-medium text-muted-foreground">
-                            {category.name}
-                          </span>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
+            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto pb-4">
+              {/* Description */}
+              <div>
                 <input
                   type="text"
                   value={description}
-                  onChange={(event) => setDescription(event.target.value)}
-                  placeholder={
-                    type === "expense"
-                      ? "What was this for?"
-                      : "Where did this come from?"
-                  }
-                  className="w-full rounded-2xl bg-secondary/50 px-4 py-2.5 text-sm outline-none placeholder:text-muted-foreground/40 focus:ring-1 focus:ring-primary/30 transition-all"
+                  onChange={(event) => handleDescriptionChange(event.target.value)}
+                  placeholder={isExpense ? "What was it? (optional)" : "From where? (optional)"}
+                  className="w-full rounded-2xl bg-secondary/50 px-4 py-3 text-sm outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-primary/40"
                 />
+                {suggestions.length > 0 ? (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {suggestions.map((entry) => (
+                      <Pill key={entry.text} onClick={() => applyRemembered(entry)}>
+                        <span>
+                          {categoryIndex.byId.get(entry.categoryId)?.emoji ?? "📦"}
+                        </span>
+                        {entry.text}
+                      </Pill>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
 
-                <div className="flex min-w-0 gap-1.5">
-                  {dateShortcuts.map((shortcut) => {
-                    const shortcutDate = new Date();
-                    shortcutDate.setDate(shortcutDate.getDate() + shortcut.offset);
-                    const value = shortcutDate.toISOString().split("T")[0];
+              {/* Category */}
+              <div>
+                <FieldLabel>Category</FieldLabel>
+                <CategoryPicker type={type} value={categoryId} onChange={setCategoryId} />
+              </div>
 
-                    return (
-                      <button
-                        key={shortcut.label}
-                        type="button"
-                        onClick={() => setDate(value)}
-                        className={cn(
-                          "min-w-0 flex-1 rounded-xl py-2 text-[9px] font-semibold uppercase tracking-[0.16em] transition-all",
-                          date === value
-                            ? "bg-primary/15 text-primary ring-1 ring-primary/30"
-                            : "bg-secondary/50 text-muted-foreground",
-                        )}
-                      >
-                        {shortcut.label}
-                      </button>
-                    );
-                  })}
-                  <button
-                    type="button"
-                    onClick={openDatePicker}
-                    className={cn(
-                      "min-w-0 shrink-0 rounded-xl px-3 py-2 transition-all flex items-center gap-1.5",
-                      !dateShortcuts.some((shortcut) => {
-                        const shortcutDate = new Date();
-                        shortcutDate.setDate(shortcutDate.getDate() + shortcut.offset);
-                        return shortcutDate.toISOString().split("T")[0] === date;
-                      })
-                        ? "bg-primary/15 text-primary ring-1 ring-primary/30"
-                        : "bg-secondary/50 text-muted-foreground",
-                    )}
-                  >
-                    <Calendar className="h-3.5 w-3.5" />
-                    <span className="text-[10px] font-semibold uppercase tracking-wider">
-                      {!dateShortcuts.some((shortcut) => {
-                        const shortcutDate = new Date();
-                        shortcutDate.setDate(shortcutDate.getDate() + shortcut.offset);
-                        return shortcutDate.toISOString().split("T")[0] === date;
-                      })
-                        ? new Date(`${date}T12:00:00`).toLocaleDateString("en-GB", {
-                            day: "numeric",
-                            month: "short",
-                          })
-                        : "Pick"}
-                    </span>
-                  </button>
-                </div>
-
-                <AnimatePresence mode="wait">
-                  {type === "expense" ? (
-                    <motion.div
-                      key="expense-options"
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: "auto" }}
-                      exit={{ opacity: 0, height: 0 }}
-                      className="space-y-2 overflow-hidden"
-                    >
-                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                        Payment type
-                      </div>
-                      <div className="flex min-w-0 gap-1.5">
-                        {(["", "tax", "credit"] as const).map((value) => (
-                          <button
-                            key={value}
-                            type="button"
-                            onClick={() => setDebtPayment(value)}
-                            className={cn(
-                              "min-w-0 flex-1 rounded-xl py-2 text-[9px] font-semibold uppercase tracking-[0.16em] transition-all",
-                              debtPayment === value
-                                ? value === ""
-                                  ? "bg-secondary text-foreground ring-1 ring-primary/30"
-                                  : value === "tax"
-                                    ? "bg-orange-500/20 text-orange-400 ring-1 ring-orange-500/30"
-                                    : "bg-blue-500/20 text-blue-400 ring-1 ring-blue-500/30"
-                                : "bg-secondary/50 text-muted-foreground",
-                            )}
-                          >
-                            {value === "" ? "Regular" : value === "tax" ? "Tax" : "Credit"}
-                          </button>
-                        ))}
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => setIsWriteOff(!isWriteOff)}
-                        className={cn(
-                          "flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-xs transition-all",
-                          isWriteOff
-                            ? "bg-amber-500/10 text-amber-400 ring-1 ring-amber-500/30"
-                            : "bg-secondary/50 text-muted-foreground",
-                        )}
-                      >
-                        <div
-                          className={cn(
-                            "flex h-4 w-4 shrink-0 items-center justify-center rounded border-[1.5px] transition-all",
-                            isWriteOff
-                              ? "border-amber-500 bg-amber-500"
-                              : "border-muted-foreground/40",
-                          )}
-                        >
-                          {isWriteOff ? <Check className="h-2.5 w-2.5 text-white" /> : null}
-                        </div>
-                        <FileText className="h-3.5 w-3.5 shrink-0" />
-                        <span>Write-off</span>
-                      </button>
-                    </motion.div>
-                  ) : (
-                    <motion.div
-                      key="income-options"
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: "auto" }}
-                      exit={{ opacity: 0, height: 0 }}
-                      className="space-y-2 overflow-hidden"
-                    >
-                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                        Income type
-                      </div>
-                      <div className="flex min-w-0 gap-1.5">
-                        {(["bruto", "neto"] as const).map((value) => (
-                          <button
-                            key={value}
-                            type="button"
-                            onClick={() => setIncomeType(value)}
-                            className={cn(
-                              "min-w-0 flex-1 rounded-xl py-2 text-[9px] font-semibold uppercase tracking-[0.16em] transition-all",
-                              incomeType === value
-                                ? "bg-primary/15 text-primary ring-1 ring-primary/30"
-                                : "bg-secondary/50 text-muted-foreground",
-                            )}
-                          >
-                            {value === "bruto" ? "Bruto" : "Neto"}
-                          </button>
-                        ))}
-                      </div>
-
-                      {availableTags.length > 0 ? (
+              {/* Date */}
+              <div>
+                <FieldLabel>Date</FieldLabel>
+                <Segmented
+                  value={dateMode}
+                  onChange={(mode) => {
+                    if (mode === "today") setDate(todayKey);
+                    else if (mode === "yesterday") setDate(yesterdayKey);
+                    else openNativeDatePicker(date, setDate);
+                  }}
+                  options={[
+                    { value: "today", label: "Today" },
+                    { value: "yesterday", label: "Yesterday" },
+                    {
+                      value: "other",
+                      label: (
                         <>
-                          <div className="pt-1 text-[10px] uppercase tracking-wider text-muted-foreground">
-                            Tags
-                          </div>
-                          <div className="flex flex-wrap gap-1.5">
-                            {availableTags.map((tag) => (
-                              <button
-                                key={tag}
-                                type="button"
-                                onClick={() =>
-                                  setTags((current) =>
-                                    current.includes(tag)
-                                      ? current.filter((item) => item !== tag)
-                                      : [...current, tag],
-                                  )
-                                }
-                                className={cn(
-                                  "rounded-lg px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wider transition-all",
-                                  tags.includes(tag)
-                                    ? "bg-primary/15 text-primary ring-1 ring-primary/30"
-                                    : "bg-secondary/50 text-muted-foreground",
-                                )}
-                              >
-                                {tag}
-                              </button>
-                            ))}
-                          </div>
+                          <Calendar className="h-3.5 w-3.5" />
+                          {dateMode === "other"
+                            ? dateKeyToDate(date).toLocaleDateString("en-GB", {
+                                day: "numeric",
+                                month: "short",
+                              })
+                            : "Pick"}
                         </>
-                      ) : null}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                      ),
+                    },
+                  ]}
+                />
               </div>
 
-              <div className="-mx-4 mt-2 px-4 pb-[calc(env(safe-area-inset-bottom,0px)+1rem)] pt-3">
-                <motion.button
-                  whileTap={{ scale: 0.98 }}
-                  onClick={handleSubmit}
-                  disabled={!categoryId || saving || saved}
-                  className={cn(
-                    "w-full rounded-2xl py-3 font-semibold text-sm transition-all",
-                    saved
-                      ? "bg-emerald-500 text-white"
-                      : !categoryId
-                        ? "cursor-not-allowed bg-secondary text-muted-foreground"
-                        : type === "expense"
-                          ? "bg-red-500 text-white hover:bg-red-600"
-                          : "bg-emerald-500 text-white hover:bg-emerald-600",
-                  )}
-                >
-                  <AnimatePresence mode="wait">
-                    {saved ? (
-                      <motion.span
-                        key="saved"
-                        initial={{ opacity: 0, scale: 0.8 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        className="flex items-center justify-center gap-2"
-                      >
-                        <Check className="h-4 w-4" />
-                        Saved {formatCurrency(parseFloat(amount || "0"))}
-                      </motion.span>
-                    ) : (
-                      <motion.span key="submit">
-                        {saving
-                          ? "Saving..."
-                          : `Add ${type === "expense" ? "Expense" : "Income"}`}
-                      </motion.span>
-                    )}
-                  </AnimatePresence>
-                </motion.button>
-              </div>
+              {/* Options */}
+              {isExpense ? (
+                isTaxCategory ? (
+                  <div>
+                    <FieldLabel>Pays tax for</FieldLabel>
+                    <Segmented
+                      value={effectiveTaxYear}
+                      onChange={setTaxYear}
+                      options={[dateYear, dateYear - 1].map((year) => ({
+                        value: year,
+                        label: String(year),
+                      }))}
+                    />
+                  </div>
+                ) : (
+                  <div className="rounded-2xl bg-secondary/30 px-3">
+                    <Switch
+                      checked={isWriteOff}
+                      onChange={setIsWriteOff}
+                      icon={<FileText className="h-4 w-4" />}
+                      label="Write-off"
+                      description="Business expense, lowers your tax"
+                    />
+                  </div>
+                )
+              ) : (
+                <div className="space-y-4">
+                  <div>
+                    <FieldLabel>Income type</FieldLabel>
+                    <Segmented
+                      value={incomeType}
+                      onChange={setIncomeType}
+                      options={[
+                        { value: "neto", label: "Neto · tax already paid" },
+                        { value: "bruto", label: "Bruto · I pay tax" },
+                      ]}
+                    />
+                  </div>
+                  {availableTags.length > 0 ? (
+                    <div>
+                      <FieldLabel>Tags</FieldLabel>
+                      <div className="flex flex-wrap gap-1.5">
+                        {availableTags.map((tag) => (
+                          <Pill
+                            key={tag}
+                            selected={tags.includes(tag)}
+                            onClick={() =>
+                              setTags((current) =>
+                                current.includes(tag)
+                                  ? current.filter((item) => item !== tag)
+                                  : [...current, tag],
+                              )
+                            }
+                          >
+                            {tag}
+                          </Pill>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              )}
+
+              {error ? <div className="text-xs text-red-400">{error}</div> : null}
+            </div>
+
+            <div className="flex pb-[calc(env(safe-area-inset-bottom,0px)+1rem)] pt-2">
+              {renderSubmit(
+                categoryId
+                  ? `Add ${isExpense ? "expense" : "income"} · ${formatCurrency(numericAmount)}`
+                  : "Choose a category",
+              )}
             </div>
           </motion.div>
         )}

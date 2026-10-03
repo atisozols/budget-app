@@ -5,8 +5,8 @@ import { MonthProvider } from "@/lib/MonthContext";
 import { AppDataProvider } from "@/lib/AppDataContext";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
 import LoadingGate from "@/components/LoadingGate";
-import MonthSwitcher from "@/components/MonthSwitcher";
 import Navigation from "@/components/Navigation";
+import UndoToast from "@/components/UndoToast";
 
 const BARE_PATHS = ["/login"];
 
@@ -29,7 +29,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               paddingTop: "calc(env(safe-area-inset-top, 0px) + 0.75rem)",
             }}
           >
-            <MonthSwitcher />
             <main
               className="flex-1"
               style={{
@@ -41,6 +40,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               {children}
             </main>
           </div>
+          <UndoToast />
           <Navigation />
         </LoadingGate>
       </AppDataProvider>

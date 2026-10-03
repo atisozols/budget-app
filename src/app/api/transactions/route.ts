@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectToDatabase } from "@/lib/mongodb";
 import Transaction from "@/lib/models/Transaction";
-import Settings from "@/lib/models/Settings";
 import Category from "@/lib/models/Category";
 import { getUserId } from "@/lib/auth";
+import { sanitizeTransactionFields } from "@/lib/transactionPayload";
 
 export async function GET(request: NextRequest) {
   try {
@@ -20,14 +20,20 @@ export async function GET(request: NextRequest) {
 
     const query: Record<string, unknown> = { userId };
 
+    // Stored dates are UTC midnight of the calendar day, so bound by UTC.
     if (month && year) {
-      const startDate = new Date(parseInt(year), parseInt(month) - 1, 1);
-      const endDate = new Date(parseInt(year), parseInt(month), 0, 23, 59, 59);
-      query.date = { $gte: startDate, $lte: endDate };
+      const y = parseInt(year);
+      const m = parseInt(month);
+      query.date = {
+        $gte: new Date(Date.UTC(y, m - 1, 1)),
+        $lt: new Date(Date.UTC(y, m, 1)),
+      };
     } else if (year) {
-      const startDate = new Date(parseInt(year), 0, 1);
-      const endDate = new Date(parseInt(year), 11, 31, 23, 59, 59);
-      query.date = { $gte: startDate, $lte: endDate };
+      const y = parseInt(year);
+      query.date = {
+        $gte: new Date(Date.UTC(y, 0, 1)),
+        $lt: new Date(Date.UTC(y + 1, 0, 1)),
+      };
     }
 
     if (type) {
@@ -35,7 +41,8 @@ export async function GET(request: NextRequest) {
     }
 
     const transactions = await Transaction.find(query)
-      .sort({ date: -1 })
+      .select("-userId -__v")
+      .sort({ date: -1, createdAt: -1 })
       .populate("categoryId")
       .lean();
 
@@ -57,13 +64,29 @@ export async function POST(request: NextRequest) {
     }
 
     await connectToDatabase();
-    const payload = { ...(await request.json()) } as Record<string, unknown>;
-    const categoryId = payload.categoryId;
-    delete payload._id;
-    delete payload.userId;
-    delete payload.categoryId;
+    const payload = (await request.json()) as Record<string, unknown>;
 
-    const category = await Category.findOne({ _id: categoryId, userId })
+    let fields: Record<string, unknown>;
+    try {
+      ({ fields } = sanitizeTransactionFields(payload));
+    } catch (validationError) {
+      return NextResponse.json(
+        { error: (validationError as Error).message },
+        { status: 400 },
+      );
+    }
+
+    if (!fields.amount || !fields.type || !fields.date) {
+      return NextResponse.json(
+        { error: "Amount, type and date are required" },
+        { status: 400 },
+      );
+    }
+
+    const category = await Category.findOne({
+      _id: payload.categoryId,
+      userId,
+    })
       .select("_id")
       .lean();
 
@@ -75,28 +98,13 @@ export async function POST(request: NextRequest) {
     }
 
     const transaction = await Transaction.create({
-      ...payload,
+      ...fields,
       userId,
       categoryId: category._id,
     });
 
-    // Auto-reduce credit debt when a credit debt payment is logged
-    // (Tax debt is tracked separately via calculated tax obligations)
-    if (payload.debtPayment === "credit") {
-      await Settings.findOneAndUpdate(
-        { userId },
-        {
-          $inc: { creditDebt: -transaction.amount },
-          $setOnInsert: { userId },
-        },
-        {
-          upsert: true,
-          setDefaultsOnInsert: true,
-        },
-      );
-    }
-
     const populated = await Transaction.findById(transaction._id)
+      .select("-userId -__v")
       .populate("categoryId")
       .lean();
     return NextResponse.json(populated, { status: 201 });

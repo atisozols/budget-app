@@ -1,19 +1,13 @@
 export type HomeCardId =
-  | "health-score"
-  | "spend-streak"
+  | "spendable"
+  | "budgets"
+  | "balance-overview"
+  | "daily-spend"
   | "month-forecast"
   | "category-trends"
-  | "weekly-digest"
-  | "activity-grid"
-  | "last7-spend"
-  | "average-daily-spend"
   | "balance-chart"
-  | "balance-overview"
-  | "month-summary"
-  | "monthly-income-expenses"
-  | "year-summary"
-  | "budget-split"
-  | "category-spend";
+  | "activity-grid"
+  | "health-score";
 
 export interface HomeCardPreference {
   id: HomeCardId;
@@ -24,93 +18,84 @@ export interface HomeCardDefinition {
   id: HomeCardId;
   title: string;
   description: string;
+  defaultEnabled: boolean;
 }
 
 export const HOME_CARD_DEFINITIONS: HomeCardDefinition[] = [
   {
-    id: "health-score",
-    title: "Financial Health",
-    description:
-      "Composite score from income, spend trend, savings, debt, and budget",
+    id: "spendable",
+    title: "Left to Spend",
+    description: "What's left this month after tax, bills and your savings goal",
+    defaultEnabled: true,
   },
   {
-    id: "spend-streak",
-    title: "Spend Streak",
-    description: "Today's spend, target, and below-average streaks",
+    id: "daily-spend",
+    title: "Today · One-off",
+    description: "Today vs your allowance, the last 14 days, and a 6-month streak map",
+    defaultEnabled: true,
+  },
+  {
+    id: "budgets",
+    title: "Budgets",
+    description: "Category budgets and how this month is pacing",
+    defaultEnabled: true,
+  },
+  {
+    id: "balance-overview",
+    title: "Balance & Debts",
+    description: "Account balance minus tax still to pay and credit debt",
+    defaultEnabled: true,
   },
   {
     id: "month-forecast",
     title: "Month Forecast",
     description: "Projected month-end spend at current pace vs last month",
+    defaultEnabled: true,
   },
   {
     id: "category-trends",
     title: "Category Trends",
-    description: "Top 5 biggest category changes vs last month",
-  },
-  {
-    id: "weekly-digest",
-    title: "Weekly Digest",
-    description: "Last 7 days summary with best/worst day and top category",
-  },
-  {
-    id: "activity-grid",
-    title: "Activity Grid",
-    description: "GitHub-style daily activity overview",
-  },
-  {
-    id: "last7-spend",
-    title: "Last 7 Days",
-    description: "Recent non-recurring expense bars and day breakdown",
-  },
-  {
-    id: "average-daily-spend",
-    title: "Average Daily Spend",
-    description: "Year-to-date running daily spend average",
+    description: "Biggest category changes vs the same days last month",
+    defaultEnabled: true,
   },
   {
     id: "balance-chart",
     title: "Balance Chart",
-    description: "Yearly running balance chart",
+    description: "Running balance over the year",
+    defaultEnabled: false,
   },
   {
-    id: "balance-overview",
-    title: "Balance Overview",
-    description: "Current balance with above or below water snapshot",
+    id: "activity-grid",
+    title: "Activity Grid",
+    description: "Below-average spend days, GitHub style",
+    defaultEnabled: false,
   },
   {
-    id: "month-summary",
-    title: "Month Summary",
-    description: "Current month income, expenses, and balance",
-  },
-  {
-    id: "monthly-income-expenses",
-    title: "Monthly Income vs Expenses",
-    description: "Monthly comparison chart for the year",
-  },
-  {
-    id: "year-summary",
-    title: "Year Summary",
-    description: "Year income, expenses, and savings rate",
-  },
-  {
-    id: "budget-split",
-    title: "50/30/20 Budget",
-    description: "Target versus actual budget buckets",
-  },
-  {
-    id: "category-spend",
-    title: "Category Spend",
-    description: "Yearly spending breakdown by category",
+    id: "health-score",
+    title: "Financial Health",
+    description: "Composite score from income, spending, savings and debt",
+    defaultEnabled: false,
   },
 ];
 
 export const DEFAULT_HOME_CARDS: HomeCardPreference[] =
-  HOME_CARD_DEFINITIONS.map(({ id }) => ({ id, enabled: true }));
+  HOME_CARD_DEFINITIONS.map(({ id, defaultEnabled }) => ({
+    id,
+    enabled: defaultEnabled,
+  }));
 
 export function normalizeHomeCards(value: unknown): HomeCardPreference[] {
   const validIds = new Set(HOME_CARD_DEFINITIONS.map((card) => card.id));
   const source = Array.isArray(value) ? value : [];
+
+  // Layouts saved before the Spendable redesign start over from the new
+  // defaults instead of mixing old and new cards.
+  const hasNewLayout = source.some(
+    (item) =>
+      item && typeof item === "object" && (item as { id?: unknown }).id === "spendable",
+  );
+  if (!hasNewLayout) return DEFAULT_HOME_CARDS.map((card) => ({ ...card }));
+
   const seen = new Set<HomeCardId>();
   const normalized: HomeCardPreference[] = [];
 
@@ -137,7 +122,7 @@ export function normalizeHomeCards(value: unknown): HomeCardPreference[] {
 
   for (const fallback of DEFAULT_HOME_CARDS) {
     if (!seen.has(fallback.id)) {
-      normalized.push(fallback);
+      normalized.push({ ...fallback });
     }
   }
 
