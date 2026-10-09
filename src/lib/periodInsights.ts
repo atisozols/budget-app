@@ -113,6 +113,7 @@ export interface PeriodStats {
   needs: number;
   wants: number;
   obligations: number;
+  invested: number;
   bills: number;
   oneOff: number;
   writeOffs: number;
@@ -180,6 +181,7 @@ export function computePeriodStats(params: {
   let needs = 0;
   let wants = 0;
   let obligations = 0;
+  let invested = 0;
   let bills = 0;
   let writeOffs = 0;
   const writeOffItems: TransactionType[] = [];
@@ -248,6 +250,7 @@ export function computePeriodStats(params: {
     if (type === "needs") needs += t.amount;
     else if (type === "wants") wants += t.amount;
     else if (type === "obligations") obligations += t.amount;
+    else if (type === "savings") invested += t.amount;
     if (t.recurringPaymentId) bills += t.amount;
     if (t.isWriteOff) {
       writeOffs += t.amount;
@@ -321,6 +324,7 @@ export function computePeriodStats(params: {
     needs,
     wants,
     obligations,
+    invested,
     bills,
     oneOff: spent - bills,
     writeOffs,

@@ -688,10 +688,18 @@ export default function InsightsPage() {
                 </div>
               );
             })}
-            {stats.obligations > 0 ? (
+            {stats.obligations > 0 || stats.invested > 0 ? (
               <div className="text-[11px] text-muted-foreground">
-                Plus {formatCurrency(stats.obligations)} debt repayment, not
-                counted as needs or wants.
+                Not counted as needs or wants:{" "}
+                {[
+                  stats.invested > 0 ? `${formatCurrency(stats.invested)} invested` : null,
+                  stats.obligations > 0
+                    ? `${formatCurrency(stats.obligations)} debt repayment`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+                .
               </div>
             ) : null}
           </div>

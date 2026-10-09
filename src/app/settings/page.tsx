@@ -1096,7 +1096,7 @@ export default function SettingsPage() {
                             "needs",
                             "wants",
                             "obligations",
-                            ...(catBudgetType === "savings" ? ["savings"] : []),
+                            "savings",
                           ] as BudgetType[]
                         ).map((bt) => (
                           <button
@@ -1109,7 +1109,7 @@ export default function SettingsPage() {
                                 : "bg-background/50 text-muted-foreground",
                             )}
                           >
-                            {bt}
+                            {bt === "savings" ? "investment" : bt}
                           </button>
                         ))}
                       </div>
@@ -1199,7 +1199,7 @@ export default function SettingsPage() {
                     <div className="text-xs font-medium">{cat.name}</div>
                     {cat.type === "expense" && (
                       <div className="text-[10px] capitalize text-muted-foreground">
-                        {cat.budgetType}
+                        {cat.budgetType === "savings" ? "investment" : cat.budgetType}
                         {cat.isTax ? " · tax" : ""}
                       </div>
                     )}
