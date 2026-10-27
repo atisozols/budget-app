@@ -57,6 +57,22 @@ export function rootOf(
   return parentOf(resolved, index) ?? resolved;
 }
 
+/**
+ * The category spending is grouped under in breakdowns and trends: normally
+ * the top-level category, but inside tax/debt parents (whose own payments
+ * aren't spending) the subcategory itself, so e.g. "Fees & fines" doesn't
+ * show up labelled as "Taxes".
+ */
+export function spendingGroupOf(
+  category: CategoryType | null | undefined,
+  index: CategoryIndex,
+): CategoryType | null {
+  const resolved = resolveCategory(category, index);
+  const root = rootOf(resolved, index);
+  if (!resolved || !root) return root;
+  return root.isTax || root.budgetType === "obligations" ? resolved : root;
+}
+
 export function categoryLabel(
   category: CategoryType | null | undefined,
   index: CategoryIndex,

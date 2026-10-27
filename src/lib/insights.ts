@@ -5,7 +5,7 @@ import {
   isLifestyleExpense,
   isTaxPayment,
   resolveCategory,
-  rootOf,
+  spendingGroupOf,
 } from "@/lib/categories";
 import { logicalToday, txDateKey, txMonthKey } from "@/lib/dates";
 
@@ -50,7 +50,7 @@ export function computeCategoryTrends(
       (year - Number(key.slice(0, 4))) * 12 + (month - (Number(key.slice(5, 7)) - 1));
     if (offset < 0 || offset > 5) continue;
 
-    const root = rootOf(t.categoryId, index);
+    const root = spendingGroupOf(t.categoryId, index);
     const catId = root?._id || "unknown";
     let bucket = buckets.get(catId);
     if (!bucket) {

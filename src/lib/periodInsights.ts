@@ -4,6 +4,7 @@ import {
   isTaxPayment,
   resolveCategory,
   rootOf,
+  spendingGroupOf,
 } from "@/lib/categories";
 import {
   MONTH_NAMES,
@@ -224,7 +225,7 @@ export function computePeriodStats(params: {
     }
 
     const matches = matchesSpendFilter(t, filter, index);
-    const root = rootOf(t.categoryId, index);
+    const root = spendingGroupOf(t.categoryId, index);
 
     if (inPrevious) {
       if (matches) previousFilteredSpent += t.amount;
@@ -392,7 +393,7 @@ export function computeMonthReview(params: {
     if (isNow) spent += t.amount;
     else spentBefore += t.amount;
     if (t.recurringPaymentId) continue; // bills don't move month to month
-    const root = rootOf(t.categoryId, index);
+    const root = spendingGroupOf(t.categoryId, index);
     if (!root || root.budgetType === "obligations") continue;
     const entry = perRoot.get(root._id) ?? { category: root, now: 0, before: 0 };
     if (isNow) entry.now += t.amount;
